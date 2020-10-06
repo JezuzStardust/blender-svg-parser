@@ -28,7 +28,7 @@ from mathutils import Matrix, Vector
 import math
 from math import pi, tan
 import os
-BLENDER = True
+BLENDER = True # Debug flag 
 ### Reading Coordinates ###
 
 # For 96 dpi:  
@@ -110,7 +110,7 @@ def svg_parse_coord(coord, size = 0): # Perhaps the size should always be used.
     unit = coord[end_index:].strip() # removes extra spaces. 
 
     if unit == '%':
-        return float(size) / 100.0 * value
+        return float(size) / 100 * value
     else: 
         return value * SVG_UNITS[unit] 
 
@@ -146,9 +146,9 @@ def svg_transform_translate(params):
     """
 
     tx = float(params[0])
-    ty = float(params[1]) if len(params) > 1 else 0.0
+    ty = float(params[1]) if len(params) > 1 else 0
 
-    m = Matrix.Translation(Vector((tx, ty, 0.0))) 
+    m = Matrix.Translation(Vector((tx, ty, 0))) 
     
     return m 
 
@@ -160,8 +160,8 @@ def svg_transform_scale(params):
     sx = float(params[0])
     sy = float(params[1]) if len(params) > 1 else sx 
 
-    m = Matrix.Scale(sx, 4, Vector((1.0, 0.0, 0.0)))
-    m = m @ Matrix.Scale(sy, 4, Vector((0.0, 1.0, 0.0)))
+    m = Matrix.Scale(sx, 4, Vector((1, 0, 0)))
+    m = m @ Matrix.Scale(sy, 4, Vector((0, 1, 0)))
 
     return m 
 
@@ -171,15 +171,15 @@ def svg_transform_rotate(params):
     Returns a rotation matrix.
     """
 
-    angle = float(params[0]) * pi / 180.0
+    angle = float(params[0]) * pi / 180
 
-    cx = cy = 0.0 
+    cx = cy = 0
     if len(params) >= 3:
         cx = float(params[1])
         cy = float(params[2])
 
-    tm = Matrix.Translation(Vector((cx, cy, 0.0))) # Translation
-    rm = Matrix.Rotation(angle, 4, Vector((0.0, 0.0, 1.0))) # Rotation
+    tm = Matrix.Translation(Vector((cx, cy, 0))) # Translation
+    rm = Matrix.Rotation(angle, 4, Vector((0, 0, 1))) # Rotation
 
     # Translate (-cx, -cy), then rotate, then translate (cx, cy). 
     m = tm @ rm @ tm.inverted() 
@@ -192,11 +192,11 @@ def svg_transform_skewX(params):
     Returns a skewX matrix. 
     """
     
-    angle = float(params[0]) * pi / 180.0
+    angle = float(params[0]) * pi / 180
     
-    m = Matrix(((1.0, tan(angle),    0.0),
-               (0.0,        1.0,    0.0),
-               (0.0,        0.0,    1.0))).to_4x4()
+    m = Matrix(((1.0,   tan(angle), 0),
+                (0,              1, 0),
+                (0,              0, 1))).to_4x4()
 
     return m
 
@@ -206,11 +206,11 @@ def svg_transform_skewY(params):
     Returns a skewY matrix. 
     """
     
-    angle = float(params[0]) * pi / 180.0
+    angle = float(params[0]) * pi / 180
     
-    m = Matrix(((1.0,        0.0,    0.0),
-               (tan(angle), 1.0,    0.0),
-               (0.0,        0.0,    1.0))).to_4x4()
+    m = Matrix(((1.0,        0,    0),
+               (tan(angle), 1,    0),
+               (0,        0,    1))).to_4x4()
 
     return m
 
@@ -227,10 +227,10 @@ def svg_transform_matrix(params):
     e = float(params[4])
     f = float(params[5])
 
-    m = Matrix(((a, c, e, 0.0),
-                (b, d, f, 0.0),
-                (0.0, 0.0, 1.0, 0.0),
-                (0.0, 0.0, 0.0, 1.0)))
+    m = Matrix(((a, c, e, 0),
+                (b, d, f, 0),
+                (0, 0, 1, 0),
+                (0, 0, 0, 1)))
 
     return m
 
@@ -408,19 +408,16 @@ class SVGGeometry():
         # Parse the SVG viewport.
         # Resolve percentages to parent viewport.
         # If viewport missing, use parent viewBox. 
-        print('current_viewBox', current_viewBox)
         if viewport:
             e_x = svg_parse_coord(viewport[0], current_viewBox[0])
             e_y = svg_parse_coord(viewport[1], current_viewBox[1])
             e_width = svg_parse_coord(viewport[2], current_viewBox[2])
             e_height = svg_parse_coord(viewport[3], current_viewBox[3])
         else:
-            e_x = 0.0
-            e_y = 0.0
+            e_x = 0
+            e_y = 0
             e_width = svg_parse_coord('100%', current_viewBox[2])
             e_height = svg_parse_coord('100%', current_viewBox[3])
-
-        print('vp', e_x, e_y, e_width, e_height)
 
         # TODO: Handle 'none'. 
         pARx = preserveAspectRatio[0]
@@ -462,7 +459,6 @@ class SVGGeometry():
         if pARy == 'YMax':
             translate_y += (e_height - vb_height * scale_y) 
 
-        print('trans', translate_y, translate_y, scale_x, scale_y)
         m = Matrix()
         m = m @ Matrix.Translation(Vector((translate_x, translate_y , 0)))
         m = m @ Matrix.Scale(scale_x, 4, Vector((1, 0, 0)))
@@ -604,8 +600,6 @@ class SVGGeometrySVG(SVGGeometryContainer):
         else:
             viewBox = self._inherit_viewBox_from_viewport()
 
-        print('viewbox ASF', viewBox)
-
         viewport_transform = self._view_to_transform()
         self._push_transform(viewport_transform)
         self._push_transform(self._transform)
@@ -670,7 +664,7 @@ class SVGGeometryRECT(SVGGeometry):
         super().__init__(node, context)
 
         # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
-        self._rect = ['0.0', '0.0', '0.0', '0.0']
+        self._rect = ['0', '0', '0', '0']
 
 
     def parse(self):
@@ -683,20 +677,19 @@ class SVGGeometryRECT(SVGGeometry):
         
         super().parse()
 
-        self._rect = []
+        self.rect = []
         for attr in ['x', 'y', 'width', 'height', 'rx', 'ry']:
             val = self._node.getAttribute(attr)
-            self._rect.append(val) # None will be appended if no value is obtained.
+            rect.append(val) if val else self._rect.append('0')
 
+        self._rect = rect
 
     def create_blender_splines(self):
         """ 
         Create Blender geometry.
         """
-        # TODO: Can this be made more nice?
 
-        vB = self._context['current_viewBox'][2:] # height and width of viewBox.
-        print(vB)
+        vB = self._context['current_viewBox'][2:] # width and height of viewBox.
         data = self._rect
         x = svg_parse_coord(data[0], vB[0])
         y = svg_parse_coord(data[1], vB[1])
@@ -706,7 +699,7 @@ class SVGGeometryRECT(SVGGeometry):
         rad_x = data[4] 
         rad_y = data[5]
         
-        rx = ry = 0.0
+        rx = ry = 0
 
         # For radii rx and ry, resolve % values against the width and height,
         # respectively. It is not clear from the specification which width
@@ -717,13 +710,13 @@ class SVGGeometryRECT(SVGGeometry):
         # If only one is given then the other one should be the same. 
         # Then clamp the values to width/2 respectively height/2.
         # https://www.w3.org/TR/SVG11/shapes.html#RectElement 
-        if rad_x != '0.0' and rad_y != '0.0':
+        if rad_x != '0' and rad_y != '0':
             rx = min(svg_parse_coord(rad_x, vB[0]), w/2) 
             ry = min(svg_parse_coord(rad_y, vB[1]), h/2)
-        elif radi_x != '0.0':
+        elif rad_x != '0':
             rx = min(svg_parse_coord(rad_x, vB[0]), w/2)
             ry = min(rx, h/2)
-        elif radii[1] != '0.0':
+        elif radii[1] != '0':
             ry = min(svg_parse_coord(rad_y, vB[1]), h/2)
             rx = min(ry, w/2)
        
@@ -733,16 +726,6 @@ class SVGGeometryRECT(SVGGeometry):
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
         factor_x = rx * (math.sqrt(7) - 1)/3
         factor_y = ry * (math.sqrt(7) - 1)/3
-
-        # Coordinate, first handle, second handle
-        # coords = [((x + rx, y), (x + rx - factor_x, y), (x + rx, y)),
-        #           ((x + w - rx, y),(x + w - rx,y),(x + w - rx + factor_x, y)),
-        #           ((x + w, y + ry),(x + w, y + ry - factor_y), (x + w, y + ry)),
-        #           ((x + w, y + h - ry), (x + w, y + h - ry), (x + w, y + h - ry + factor_y)),
-        #           ((x + w - rx, y + h),(x + w - rx + factor_x, y + h),(x + w - rx, y + h)),
-        #           ((x + rx, y + h),(x + rx, y + h),(x + rx - factor_x, y + h)),
-        #           ((x, y + h - ry),(x, y + h - ry + factor_y),(x, y + h - ry)),
-        #           ((x, y + ry),(x, y + ry),(x, y + ry - factor_y))]
 
         coords = [((x + rx, y), (x + rx - factor_x, y), None),
                   ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
@@ -754,6 +737,8 @@ class SVGGeometryRECT(SVGGeometry):
                   ((x, y + ry), None, (x, y + ry - factor_y))]
 
         # Create Blender curve object. 
+        # This code is identical in all classes, except for the name of the 
+        # curve/object. 
         if BLENDER:
             curve = bpy.data.curves.new('Rect', 'CURVE')
             obj = bpy.data.objects.new('Rect', curve)
@@ -810,8 +795,7 @@ class SVGGeometryELLIPSE(SVGGeometry):
         super().__init__(node, context)
 
         self._is_circle = is_circle
-        print('is circle:', is_circle)
-        self._ellipse = ['0.0', '0.0', '0.0', '0.0'] # cx, cy, rx, ry. 
+        self._ellipse = ['0', '0', '0', '0'] # cx, cy, rx, ry. 
         # Or if circle, cx, cy, r, r
 
 
@@ -825,8 +809,8 @@ class SVGGeometryELLIPSE(SVGGeometry):
         ellipse = []
 
         for attr in ['cx', 'cy', 'rx', 'ry']:
-            val = self._node.getAttribute(attr)
-            ellipse.append(val)
+            val = self._node.getAttribute(attr) 
+            ellipse.append(val) if val else elipse.append('0')
 
         if self._is_circle:
             ellipse = ellipse[:2]
@@ -843,7 +827,7 @@ class SVGGeometryELLIPSE(SVGGeometry):
         """
         # TODO: Can this be made more nice?
 
-        vB = self._context['current_viewBox'][2:] # height and width of viewBox.
+        vB = self._context['current_viewBox'][2:] # width and height of viewBox.
 
         data = self._ellipse
 
@@ -851,14 +835,10 @@ class SVGGeometryELLIPSE(SVGGeometry):
         # as a separate function? 
         cx = svg_parse_coord(data[0], vB[0])
         cy = svg_parse_coord(data[1], vB[1])
-        print('data', data[0], data[1])
-        print('cx cy', cx, cy)
 
         if self._is_circle:
-            scale = math.sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/math.sqrt(2)
-            print('scale', scale)
-            rx = ry = svg_parse_coord(data[2], math.sqrt((float(vB[0]) ** 2 + float(vB[1]) ** 2)/2))  
-            print(rx, ry)
+            weighted_diagonal = math.sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/math.sqrt(2)
+            rx = ry = svg_parse_coord(data[2], weighted_diagonal)  
         else:
             rx = svg_parse_coord(data[2], vB[0])
             ry = svg_parse_coord(data[3], vB[1]) 
@@ -929,13 +909,137 @@ class SVGGeometryCIRCLE(SVGGeometryELLIPSE):
     """
     def __init__(self, node, context):
         super().__init__(node, context, True) 
+
+
+class SVGGeometryLINE(SVGGeometry):
+    """
+    SVG <line>. 
+    """
+    __slots__ = ('_line')
+                 
+
+    def __init__(self, node, context, is_circle = False):
+        """ 
+        Initialize the ellipse with default values (all zero). 
+        """
+
+        super().__init__(node, context)
+
+        self._line = ['0', '0', '0', '0'] # x1, y1, x2, y2
+
+
+    def parse(self):
+        """ 
+        Parses the data from the <ellipse> element.
+        """
+
+        super().parse()
+
+        line = []
+
+        for attr in ['x1', 'y1', 'x2', 'y2']:
+            val = self._node.getAttribute(attr)
+            line.append(val) if val else line.append('0')
+
+        self._line = line
+
+
+    def create_blender_splines(self):
+        """ 
+        Create Blender geometry.
+        """
+        # TODO: Can this be made more nice?
+
+        vB = self._context['current_viewBox'][2:] # width and height of viewBox.
+
+        data = self._line
+
+        x1 = svg_parse_coord(data[0], vB[0])
+        y1 = svg_parse_coord(data[1], vB[1])
+        x2 = svg_parse_coord(data[2], vB[0])
+        y2 = svg_parse_coord(data[3], vB[1])
+
+
+        # (coordinate, first handle, second handle)
+        # A bit redundant in this case, but doing it this way
+        # makes it potentially possible to reuse code. 
+        # TODO: Check for code reuse. 
+        coords = [((x1, y1), (x1, y1), (x1, y1)), ((x2, y2), (x2, y2),(x2, y2))]
+
+        # Create Blender curve object. 
+        # TODO: This part is identical for RECT, and ELLIPSE, and CIRCLE, LINE.
+        # except for name of curve. 
+        # Move to superclass and pass in name.  
+        # Consider also passing in id or classname, when known. 
+        if BLENDER:
+
+            name = 'Line'
+            curve = bpy.data.curves.new(name, 'CURVE')
+            obj = bpy.data.objects.new(name, curve)
+            self._context['blender_collection'].objects.link(obj)
+            cu = obj.data 
+
+            cu.dimensions = '2D'
+            cu.fill_mode = 'BOTH'
+            #cu.materials.append(...)
+
+            cu.splines.new('BEZIER')
+
+            spline = cu.splines[-1]
+            spline.use_cyclic_u = False
+
+
+        first_point = True
+
+        self._push_transform(self._transform) 
+
+        for co in coords:
+            # Add point and set the coordinates of the point and the handles.
+            # Remember to transform! 
+            if not first_point:
+                spline.bezier_points.add(1)
+
+            bezt = spline.bezier_points[-1]
+            c = self._transform_coord(co[0])
+            bezt.co = c
+            bezt.handle_left = self._transform_coord(co[1])
+            bezt.handle_right = self._transform_coord(co[2])
+            first_point = False
             
+        self._pop_transform(self._transform)
+
+
+class SVGGeometryPOLYLINE(SVGGeometry):
+    """
+    SVG <polyline>.
+    """
+    __slots__ = ('_points')
+
+    def __init__(self, node, context):
+        """
+        """
+        
+        super().__init__(node, context)
+
+        # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
+        self._points = [('0','0'), ('0','0')]
+
+
+    def parse(self):
+        """
+        Parse the node data.
+        """
+        pass
+        # Time to whip out some good ol' regular expressions. 
+
 
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'g':   SVGGeometryG,
                         'rect': SVGGeometryRECT,
                         'ellipse': SVGGeometryELLIPSE, 
                         'circle': SVGGeometryCIRCLE, 
+                        'line': SVGGeometryLINE,
+                        'polyline': SVGGeometryPOLYLINE,
                         }
 
 
@@ -951,7 +1055,7 @@ class SVGLoader(SVGGeometryContainer):
         All geometries will be contained by this instance and the containers it contains. 
         """
 
-        # BLENDER = False
+        # BLENDER = False # Debug flag. 
         if BLENDER: 
             svg_name = os.path.basename(svg_filepath)
             scene = blender_context.scene
@@ -970,18 +1074,17 @@ class SVGLoader(SVGGeometryContainer):
 
         # SVG y-axis points downwards, but Blender's y-axis points upwards. 
         m = Matrix()
-        m = m @ Matrix.Scale(scale, 4, Vector((1.0, 0.0, 0.0)))
-        m = m @ Matrix.Scale(-scale, 4, Vector((0.0, 1.0, 0.0))) 
+        m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))
+        m = m @ Matrix.Scale(-scale, 4, Vector((0, 1, 0))) 
         
-        context = {'current_viewport': (0,0,0,0), # Same as viewport_stack[-1].
-                   'current_viewBox': (0,0,0,0), # Same as viewBox_stack[-1].
-                   'viewport_stack': [(0,0,0,0)], # May or may not be needed. 
-                   'viewBox_stack': [(0,0,0,0)], 
-                   'current_transform': m, 
-                   'current_style': SVG_EMPTY_STYLE,
-                   'defs': {}, # DEFS and SYBOL references. 
-                   'symbols': {}, # Perhaps not needed. 
-                   'blender_collection': collection
+        context = {'current_viewport': (0, 0), # Not used so far. 
+                   'current_viewBox': (0, 0, 0, 0), # Same as viewBox_stack[-1].
+                   'viewport_stack': [(0, 0, 0, 0)], # Not used so far.  
+                   'viewBox_stack': [(0, 0, 0, 0)], # Used. 
+                   'current_transform': m,       # Used
+                   'current_style': SVG_EMPTY_STYLE, # Will be used. Probably also a stack is needed. This stack should have a special push method that considers the previous 
+                   'defs': {}, # DEFS (and maybe SYMBOL) references. 
+                   'blender_collection': collection # Used.
                   }
 
         super().__init__(node, context)
