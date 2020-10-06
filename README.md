@@ -11,7 +11,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 ## Improvements/changes:
 * Uses a different (perhaps improved) way of approximating elliptic curves for the rounded corners of `<rect>`.
 * Handles `viewBox` attributes more consistently, e.g. for nested SVG-elements. 
-* Takes into account the `preserveAspectRatio`. 
+* Takes into account the `preserveAspectRatio` (but does not yet handle 'none').
 * Scales the radius of a circle correctly when given in relative terms (percentages). 
 * The imported image will have the correct size (e.g. a 2cm-by-2cm SVG image will produce a 2cm-by-2cm "image" in Blender)
 * Changed so that the default is 96 dpi. 
@@ -24,3 +24,4 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Add possibility of automatically scale image on import. 
 * Add settings for different dpi. 
 * Make it into an actual Blender addon that can be installed. 
+* Add comparisons images between this, the orignal plugin and Firefox renderings* Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
