@@ -24,4 +24,5 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Add possibility of automatically scale image on import. 
 * Add settings for different dpi. 
 * Make it into an actual Blender addon that can be installed. 
-* Add comparisons images between this, the orignal plugin and Firefox renderings* Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
+* Add comparisons images between this, the orignal plugin and Firefox renderings.
+* Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
