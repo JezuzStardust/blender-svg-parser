@@ -668,7 +668,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._width = '0'
         self._height = '0'
         self._rx = '0'
-        self._x = '0'
+        self._ry = '0'
 
 
     def parse(self):
@@ -687,7 +687,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._height = self._node.getAttribute('height') or '0'
         self._rx = self._node.getAttribute('rx') or '0'
         self._ry = self._node.getAttribute('ry') or '0'
-
+        
 
     def create_blender_splines(self):
         """ 
@@ -715,6 +715,7 @@ class SVGGeometryRECT(SVGGeometry):
         # Then clamp the values to width/2 respectively height/2.
         # 100% means half the width or height of the viewBox (or viewport).
         # https://www.w3.org/TR/SVG11/shapes.html#RectElement 
+        rounded = True
         if rad_x != '0' and rad_y != '0':
             rx = min(svg_parse_coord(rad_x, vB[0]), w/2) 
             ry = min(svg_parse_coord(rad_y, vB[1]), h/2)
@@ -724,6 +725,8 @@ class SVGGeometryRECT(SVGGeometry):
         elif rad_y != '0':
             ry = min(svg_parse_coord(rad_y, vB[1]), h/2)
             rx = min(ry, w/2)
+        else: 
+            rounded = False
        
         # Approximation of elliptic curve for corner.
         # Put the handles semi minor(or major) axis radius times 
@@ -735,14 +738,17 @@ class SVGGeometryRECT(SVGGeometry):
         # TODO: In case it is not rounded each point is counted twice!
         # TODO: Consider using control points away from co in 
         # all cases. Makes editing afterwards easier. 
-        coords = [((x + rx, y), (x + rx - factor_x, y), None),
-                  ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
-                  ((x + w, y + ry), (x + w, y + ry - factor_y), None),
-                  ((x + w, y + h - ry), None, (x + w, y + h - ry + factor_y)),
-                  ((x + w - rx, y + h), (x + w - rx + factor_x, y + h), None),
-                  ((x + rx, y + h), None, (x + rx - factor_x, y + h)),
-                  ((x, y + h - ry), (x, y + h - ry + factor_y), None),
-                  ((x, y + ry), None, (x, y + ry - factor_y))]
+        if rounded:
+            coords = [((x + rx, y), (x + rx - factor_x, y), None),
+                      ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
+                      ((x + w, y + ry), (x + w, y + ry - factor_y), None),
+                      ((x + w, y + h - ry), None, (x + w, y + h - ry + factor_y)),
+                      ((x + w - rx, y + h), (x + w - rx + factor_x, y + h), None),
+                      ((x + rx, y + h), None, (x + rx - factor_x, y + h)),
+                      ((x, y + h - ry), (x, y + h - ry + factor_y), None),
+                      ((x, y + ry), None, (x, y + ry - factor_y))]
+        else:
+            coords = [(x,y), (x + w, y), (x + w, y + h), (x, y + h)]
 
         # Create Blender curve object. 
         # This code is identical in all classes, except for the name of the 
@@ -763,25 +769,34 @@ class SVGGeometryRECT(SVGGeometry):
             spline.use_cyclic_u = True
 
 
-        first_point = True
-
         self._push_transform(self._transform)
 
+        first_point = True
         for co in coords:
             # Add point and set the coordinates of the point and the handles.
             # Remember to transform! 
-            if not first_point:
-                spline.bezier_points.add(1)
 
+            if not first_point: 
+                spline.bezier_points.add(1)
+            
             bezt = spline.bezier_points[-1]
-            c = self._transform_coord(co[0])
-            bezt.co = c
-            bezt.handle_left = c
-            bezt.handle_right = c
-            if co[1]:
-                bezt.hande_left = self._transform_coord(co[1])
-            if co[2]:
-                bezt.handle_right = self._transform_coord(co[2])
+
+            if rounded:
+                c = self._transform_coord(co[0])
+                bezt.co = c
+                if co[1]:
+                    bezt.handle_left = self._transform_coord(co[1])
+                else: 
+                    bezt.handle_left_type = 'VECTOR'
+                if co[2]:
+                    bezt.handle_right = self._transform_coord(co[2])
+                else:
+                    bezt.handle_right_type = 'VECTOR'
+            else:
+                bezt.co = self._transform_coord(co)
+                bezt.handle_left_type = 'VECTOR'
+                bezt.handle_right_type = 'VECTOR'
+
             first_point = False
             
         self._pop_transform(self._transform)
