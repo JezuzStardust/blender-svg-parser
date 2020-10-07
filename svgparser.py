@@ -653,7 +653,7 @@ class SVGGeometryRECT(SVGGeometry):
     SVG <rect>.
     """
 
-    __slots__ = ('_rect') # dict with {'x', 'y', 'width', 'height', 'rx' 'ry'.
+    __slots__ = ('_x', '_y', '_width', '_height', '_rx', '_ry') 
 
 
     def __init__(self, node, context):
@@ -663,8 +663,12 @@ class SVGGeometryRECT(SVGGeometry):
 
         super().__init__(node, context)
 
-        # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
-        self._rect = ['0', '0', '0', '0']
+        self._x = '0'
+        self._y = '0'
+        self._width = '0'
+        self._height = '0'
+        self._rx = '0'
+        self._x = '0'
 
 
     def parse(self):
@@ -677,12 +681,13 @@ class SVGGeometryRECT(SVGGeometry):
         
         super().parse()
 
-        self.rect = []
-        for attr in ['x', 'y', 'width', 'height', 'rx', 'ry']:
-            val = self._node.getAttribute(attr)
-            rect.append(val) if val else self._rect.append('0')
+        self._x = self._node.getAttribute('x') or '0'
+        self._y = self._node.getAttribute('y') or '0'
+        self._width = self._node.getAttribute('width') or '0'
+        self._height = self._node.getAttribute('height') or '0'
+        self._rx = self._node.getAttribute('rx') or '0'
+        self._ry = self._node.getAttribute('ry') or '0'
 
-        self._rect = rect
 
     def create_blender_splines(self):
         """ 
@@ -690,16 +695,15 @@ class SVGGeometryRECT(SVGGeometry):
         """
 
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
-        data = self._rect
-        x = svg_parse_coord(data[0], vB[0])
-        y = svg_parse_coord(data[1], vB[1])
-        w = svg_parse_coord(data[2], vB[0])
-        h = svg_parse_coord(data[3], vB[1]) 
 
-        rad_x = data[4] 
-        rad_y = data[5]
+        x = svg_parse_coord(self._x, vB[0])
+        y = svg_parse_coord(self._y, vB[1])
+        w = svg_parse_coord(self._width, vB[0])
+        h = svg_parse_coord(self._height, vB[1]) 
         
         rx = ry = 0
+        rad_x = self._rx 
+        rad_y = self._ry
 
         # For radii rx and ry, resolve % values against the width and height,
         # respectively. It is not clear from the specification which width
@@ -709,6 +713,7 @@ class SVGGeometryRECT(SVGGeometry):
         # most likely the width and height of the current viewBox.  
         # If only one is given then the other one should be the same. 
         # Then clamp the values to width/2 respectively height/2.
+        # 100% means half the width or height of the viewBox (or viewport).
         # https://www.w3.org/TR/SVG11/shapes.html#RectElement 
         if rad_x != '0' and rad_y != '0':
             rx = min(svg_parse_coord(rad_x, vB[0]), w/2) 
@@ -716,7 +721,7 @@ class SVGGeometryRECT(SVGGeometry):
         elif rad_x != '0':
             rx = min(svg_parse_coord(rad_x, vB[0]), w/2)
             ry = min(rx, h/2)
-        elif radii[1] != '0':
+        elif rad_y != '0':
             ry = min(svg_parse_coord(rad_y, vB[1]), h/2)
             rx = min(ry, w/2)
        
@@ -727,6 +732,9 @@ class SVGGeometryRECT(SVGGeometry):
         factor_x = rx * (math.sqrt(7) - 1)/3
         factor_y = ry * (math.sqrt(7) - 1)/3
 
+        # TODO: In case it is not rounded each point is counted twice!
+        # TODO: Consider using control points away from co in 
+        # all cases. Makes editing afterwards easier. 
         coords = [((x + rx, y), (x + rx - factor_x, y), None),
                   ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
                   ((x + w, y + ry), (x + w, y + ry - factor_y), None),
@@ -771,7 +779,7 @@ class SVGGeometryRECT(SVGGeometry):
             bezt.handle_left = c
             bezt.handle_right = c
             if co[1]:
-                bezt.handle_left = self._transform_coord(co[1])
+                bezt.hande_left = self._transform_coord(co[1])
             if co[2]:
                 bezt.handle_right = self._transform_coord(co[2])
             first_point = False
@@ -783,7 +791,10 @@ class SVGGeometryELLIPSE(SVGGeometry):
     """
     SVG <ellipse>. 
     """
-    __slots__ = ('_ellipse',
+    __slots__ = ('_cx',
+                 '_cy',
+                 '_rx',
+                 '_ry',
                  '_is_circle')
                  
 
@@ -795,8 +806,10 @@ class SVGGeometryELLIPSE(SVGGeometry):
         super().__init__(node, context)
 
         self._is_circle = is_circle
-        self._ellipse = ['0', '0', '0', '0'] # cx, cy, rx, ry. 
-        # Or if circle, cx, cy, r, r
+        self._cx = '0'
+        self._cy = '0'
+        self._rx = '0'
+        self._ry = '0'
 
 
     def parse(self):
@@ -806,19 +819,17 @@ class SVGGeometryELLIPSE(SVGGeometry):
 
         super().parse()
 
-        ellipse = []
+        self._cx = self._node.getAttribute('cx') or '0'
+        self._cy = self._node.getAttribute('cy') or '0'
 
-        for attr in ['cx', 'cy', 'rx', 'ry']:
-            val = self._node.getAttribute(attr) 
-            ellipse.append(val) if val else elipse.append('0')
+        self._rx = self._node.getAttribute('rx') or '0'
+        self._ry = self._node.getAttribute('ry') or '0'
 
-        if self._is_circle:
-            ellipse = ellipse[:2]
-            val = self._node.getAttribute('r')
-            ellipse.append(val) # Added twice to be able to reuse ellipse code. 
-            ellipse.append(val) # A circle is an ellipse with rx = ry = r.
-
-        self._ellipse = ellipse
+        r = self._node.getAttribute('r') or '0'
+        
+        if r != '0':
+            self._is_circle = True
+            self._rx = r
 
 
     def create_blender_splines(self):
@@ -829,19 +840,17 @@ class SVGGeometryELLIPSE(SVGGeometry):
 
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
 
-        data = self._ellipse
-
         # TODO: Define this transformation 
         # as a separate function? 
-        cx = svg_parse_coord(data[0], vB[0])
-        cy = svg_parse_coord(data[1], vB[1])
+        cx = svg_parse_coord(self._cx, vB[0])
+        cy = svg_parse_coord(self._cy, vB[1])
 
         if self._is_circle:
             weighted_diagonal = math.sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/math.sqrt(2)
-            rx = ry = svg_parse_coord(data[2], weighted_diagonal)  
+            rx = ry = svg_parse_coord(self._rx, weighted_diagonal)  
         else:
-            rx = svg_parse_coord(data[2], vB[0])
-            ry = svg_parse_coord(data[3], vB[1]) 
+            rx = svg_parse_coord(self._rx, vB[0])
+            ry = svg_parse_coord(self._ry, vB[1]) 
 
         # Approximation of elliptic curve for corner.
         # Put the handles semi minor(or major) axis radius times 
@@ -907,15 +916,17 @@ class SVGGeometryCIRCLE(SVGGeometryELLIPSE):
     """
     A <circle> element with a lot of reuse of ellipse code. 
     """
-    def __init__(self, node, context):
-        super().__init__(node, context, True) 
+    pass # Handled completely by ELLIPSE. 
 
 
 class SVGGeometryLINE(SVGGeometry):
     """
     SVG <line>. 
     """
-    __slots__ = ('_line')
+    __slots__ = ('_x1',
+                 '_y1',
+                 '_x2',
+                 '_y2')
                  
 
     def __init__(self, node, context, is_circle = False):
@@ -925,7 +936,10 @@ class SVGGeometryLINE(SVGGeometry):
 
         super().__init__(node, context)
 
-        self._line = ['0', '0', '0', '0'] # x1, y1, x2, y2
+        self._x1 = '0'
+        self._y1 = '0'
+        self._x2 = '0'
+        self._y2 = '0'
 
 
     def parse(self):
@@ -935,13 +949,10 @@ class SVGGeometryLINE(SVGGeometry):
 
         super().parse()
 
-        line = []
-
-        for attr in ['x1', 'y1', 'x2', 'y2']:
-            val = self._node.getAttribute(attr)
-            line.append(val) if val else line.append('0')
-
-        self._line = line
+        self._x1 = self._node.getAttribute('x1') or '0'
+        self._y1 = self._node.getAttribute('y1') or '0'
+        self._x2 = self._node.getAttribute('x2') or '0'
+        self._y2 = self._node.getAttribute('y2') or '0'
 
 
     def create_blender_splines(self):
@@ -952,18 +963,18 @@ class SVGGeometryLINE(SVGGeometry):
 
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
 
-        data = self._line
-
-        x1 = svg_parse_coord(data[0], vB[0])
-        y1 = svg_parse_coord(data[1], vB[1])
-        x2 = svg_parse_coord(data[2], vB[0])
-        y2 = svg_parse_coord(data[3], vB[1])
+        x1 = svg_parse_coord(self._x1, vB[0])
+        y1 = svg_parse_coord(self._y1, vB[1])
+        x2 = svg_parse_coord(self._x2, vB[0])
+        y2 = svg_parse_coord(self._y2, vB[1])
 
 
         # (coordinate, first handle, second handle)
         # A bit redundant in this case, but doing it this way
         # makes it potentially possible to reuse code. 
         # TODO: Check for code reuse. 
+        # TODO: Consider allowing for handle to be empty or None in
+        # cases where coincident with point coordinate.
         coords = [((x1, y1), (x1, y1), (x1, y1)), ((x2, y2), (x2, y2),(x2, y2))]
 
         # Create Blender curve object. 
@@ -1000,8 +1011,7 @@ class SVGGeometryLINE(SVGGeometry):
                 spline.bezier_points.add(1)
 
             bezt = spline.bezier_points[-1]
-            c = self._transform_coord(co[0])
-            bezt.co = c
+            bezt.co = self._transform_coord(co[0])
             bezt.handle_left = self._transform_coord(co[1])
             bezt.handle_right = self._transform_coord(co[2])
             first_point = False
