@@ -544,6 +544,19 @@ class SVGGeometry():
 
 
     def _add_points_to_blender(self, coords, spline):
+        """
+        Adds points from coords to the spline. 
+
+        coords = list of coordinates (point, handle_left, handle_right).
+        spline = a reference to bpy.objects[...].data.splines[-1].
+        """
+        # TODO: It is better to create the spline within the loop (for point...). 
+        # In this way, we use the first point of the spline directly when it is
+        # created and the remaining points are added. 
+        # No need for 'first_point'.
+        # In that case we might be able to get rid of the 
+        # function _new_blender_curve completely.
+        # Alternatively, call it from here. 
         first_point = True
         for co in coords:
             if not first_point: 
@@ -1020,10 +1033,6 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         Creates the splines in Blender. 
         """
 
-        # TODO: It is better to create the spline within the loop (for point...). 
-        # In this way, we use the first point of the spline directly when it is
-        # created and the remaining points are added. 
-        # No need for 'first_point'.
 
         name = self._node.getAttribute('id') or self._node.getAttribute('class')
 
