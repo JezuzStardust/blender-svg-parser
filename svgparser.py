@@ -543,6 +543,26 @@ class SVGGeometry():
         return spline
 
 
+    def _add_points_to_blender(self, coords, spline):
+        first_point = True
+        for co in coords:
+            if not first_point: 
+                spline.bezier_points.add(1)
+            
+            bezt = spline.bezier_points[-1]
+
+            bezt.co = self._transform_coord(co[0])
+            if co[1]:
+                bezt.handle_left = self._transform_coord(co[1])
+            else: 
+                bezt.handle_left_type = 'VECTOR'
+            if co[2]:
+                bezt.handle_right = self._transform_coord(co[2])
+            else:
+                bezt.handle_right_type = 'VECTOR'
+            first_point = False
+
+
 class SVGGeometryContainer(SVGGeometry):
     """
     Container class for SVGGeometry. 
@@ -767,7 +787,10 @@ class SVGGeometryRECT(SVGGeometry):
                       ((x, y + h - ry), (x, y + h - ry + factor_y), None),
                       ((x, y + ry), None, (x, y + ry - factor_y))]
         else:
-            coords = [(x,y), (x + w, y), (x + w, y + h), (x, y + h)]
+            coords = [((x,y), None, None),
+                      ((x + w, y), None, None),
+                      ((x + w, y + h), None, None),
+                      ((x, y + h), None, None)]
 
         name = self._node.getAttribute('id') or self._node.getAttribute('class') 
         if not name:
@@ -777,34 +800,8 @@ class SVGGeometryRECT(SVGGeometry):
 
         self._push_transform(self._transform)
 
-        first_point = True
-        for co in coords:
-            # Add point and set the coordinates of the point and the handles.
-            # Remember to transform! 
+        self._add_points_to_blender(coords, spline)
 
-            if not first_point: 
-                spline.bezier_points.add(1)
-            
-            bezt = spline.bezier_points[-1]
-
-            if rounded:
-                c = self._transform_coord(co[0])
-                bezt.co = c
-                if co[1]:
-                    bezt.handle_left = self._transform_coord(co[1])
-                else: 
-                    bezt.handle_left_type = 'VECTOR'
-                if co[2]:
-                    bezt.handle_right = self._transform_coord(co[2])
-                else:
-                    bezt.handle_right_type = 'VECTOR'
-            else:
-                bezt.co = self._transform_coord(co)
-                bezt.handle_left_type = 'VECTOR'
-                bezt.handle_right_type = 'VECTOR'
-
-            first_point = False
-            
         self._pop_transform(self._transform)
 
 
@@ -861,8 +858,6 @@ class SVGGeometryELLIPSE(SVGGeometry):
 
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
 
-        # TODO: Define this transformation 
-        # as a separate function? 
         cx = svg_parse_coord(self._cx, vB[0])
         cy = svg_parse_coord(self._cy, vB[1])
 
@@ -886,11 +881,6 @@ class SVGGeometryELLIPSE(SVGGeometry):
                   ((cx + rx, cy), (cx + rx, cy - factor_y), (cx + rx, cy + factor_y)),
                   ((cx, cy + ry), (cx + factor_x, cy + ry), (cx - factor_x, cy + ry))]
 
-        # Create Blender curve object. 
-        # TODO: This part is identical for RECT, and ELLIPSE, and CIRCLE
-        # except for name of curve. 
-        # Move to superclass and pass in name.  
-        # Consider also passing in id or classname, when known. 
         name = self._node.getAttribute('id') or self._node.getAttribute('class')
         if not name:
             if self._is_circle:
@@ -900,23 +890,10 @@ class SVGGeometryELLIPSE(SVGGeometry):
 
         spline = self._new_blender_curve(name, True)
 
-        first_point = True
-
         self._push_transform(self._transform) 
 
-        for co in coords:
-            # Add point and set the coordinates of the point and the handles.
-            # Remember to transform! 
-            if not first_point:
-                spline.bezier_points.add(1)
+        self._add_points_to_blender(coords, spline)
 
-            bezt = spline.bezier_points[-1]
-            c = self._transform_coord(co[0])
-            bezt.co = c
-            bezt.handle_left = self._transform_coord(co[1])
-            bezt.handle_right = self._transform_coord(co[2])
-            first_point = False
-            
         self._pop_transform(self._transform)
 
 
@@ -935,7 +912,7 @@ class SVGGeometryLINE(SVGGeometry):
                  '_y1',
                  '_x2',
                  '_y2')
-                 
+
 
     def __init__(self, node, context, is_circle = False):
         """ 
@@ -976,9 +953,6 @@ class SVGGeometryLINE(SVGGeometry):
         x2 = svg_parse_coord(self._x2, vB[0])
         y2 = svg_parse_coord(self._y2, vB[1])
 
-        # TODO: Check for code reuse. 
-        # TODO: Consider allowing for handle to be empty or None in
-        # cases where coincident with point coordinate.
         coords = [((x1, y1), None, None), ((x2, y2), None, None)]
 
         name = self._node.getAttribute('id') or self._node.getAttribute('class') 
@@ -987,21 +961,9 @@ class SVGGeometryLINE(SVGGeometry):
 
         spline = self._new_blender_curve(name, False)
 
-        first_point = True
-
         self._push_transform(self._transform) 
 
-        for co in coords:
-            if not first_point:
-                spline.bezier_points.add(1)
-
-            bezt = spline.bezier_points[-1]
-            bezt.co = self._transform_coord(co[0])
-            # bezt.handle_left = self._transform_coord(co[1])
-            # bezt.handle_right = self._transform_coord(co[2])
-            bezt.handle_left_type = 'VECTOR'
-            bezt.handle_right_type = 'VECTOR'
-            first_point = False
+        self._add_points_to_blender(coords, spline)
 
         self._pop_transform(self._transform)
 
@@ -1010,7 +972,9 @@ class SVGGeometryPOLYLINE(SVGGeometry):
     """
     SVG <polyline>.
     """
-    __slots__ = ('_points')
+
+    __slots__ = ('_points',
+                 '_is_closed')
 
     def __init__(self, node, context):
         """
@@ -1019,26 +983,30 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         
         super().__init__(node, context)
 
+        self._is_closed = False
+
         self._points = []
 
 
     def parse(self):
         """
         Parse the node data.
+
+        In this case coordinates cannot be %, so this parsing 
+        does not have to be done at time of coordinate creation. 
         """
         points = self._node.getAttribute('points')
 
-        # sign? integers | integers.
-        # sign? integers.integers | .integers
-        # sign? (integers | integers. | integers.integers | .integers ) 
-        # [eE]?[+-]? (integers | integers. | integers.integers | .integers ) 
-        
-
+        # TODO: Check if this should be done in a separate function. 
         match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
 
         number_matcher = re.compile(match_number) 
 
         previous = None
+        
+        # TODO: If also useful for path: 
+        # append ((previous, float(p[0])), None, None)
+        # In this way, we can reuse _add_points_to_blender. 
         for p in number_matcher.findall(points):
             if previous is None: # Skips last number if number of points is odd.
                 previous = float(p[0])
@@ -1058,14 +1026,24 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         # No need for 'first_point'.
 
         name = self._node.getAttribute('id') or self._node.getAttribute('class')
+
         if not name:
-            name = 'Polyline'
+            if self._is_closed: 
+                name = 'Polygon'
+            else:
+                name = 'Polyline'
 
-        spline = self._new_blender_curve(name, False)
-
-        first_point = True
+        spline = self._new_blender_curve(name, self._is_closed)
 
         self._push_transform(self._transform) 
+        
+        # TODO: Rethink this so that it can use the function
+        # _add_points_to_blender. 
+        # Alternative 1: Remake this code. 
+        # Alternative 2: If this is similar for how to handle 
+        # paths, then create a new function for these two. 
+        # Alternative 3: Keep this code separate as is. 
+        first_point = True
 
         for point in self._points:
             if not first_point:
@@ -1080,13 +1058,10 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         self._pop_transform(self._transform)
 
 
-class SVGGeometryPOLYGON(SVGGeometry):
+class SVGGeometryPOLYGON(SVGGeometryPOLYLINE):
     """
     SVG <polygon>.
     """
-    # TODO: Refactor this and POLYLINE. They only differ by the curve being closed or not. 
-    __slots__ = ('_points')
-
     def __init__(self, node, context):
         """
         Init the <polyline> using default values (points is empty).
@@ -1094,60 +1069,7 @@ class SVGGeometryPOLYGON(SVGGeometry):
         
         super().__init__(node, context)
 
-        # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
-        self._points = []
-
-
-    def parse(self):
-        """
-        Parse the node data.
-        """
-        points = self._node.getAttribute('points')
-
-        # sign? integers | integers.
-        # sign? integers.integers | .integers
-        # sign? (integers | integers. | integers.integers | .integers ) 
-        # [eE]?[+-]? (integers | integers. | integers.integers | .integers ) 
-
-        match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
-
-        number_matcher = re.compile(match_number) 
-
-        previous = None
-        for p in number_matcher.findall(points):
-            if previous is None: # Skips last number if number of points is odd.
-                previous = float(p[0])
-            else: 
-                self._points.append((previous, float(p[0])))
-                previous = None
-
-
-    def create_blender_splines(self):
-        """
-        Creates the splines in Blender. 
-        """
-
-        name = self._node.getAttribute('id') or self._node.getAttribute('class')
-        if not name:
-            name = 'Polyline'
-
-        spline = self._new_blender_curve(name, True)
-
-        first_point = True
-
-        self._push_transform(self._transform) 
-
-        for point in self._points:
-            if not first_point:
-                spline.bezier_points.add(1)
-
-            bezt = spline.bezier_points[-1]
-            bezt.co = self._transform_coord(point)
-            bezt.handle_left_type = 'VECTOR'
-            bezt.handle_right_type = 'VECTOR'
-            first_point = False
-
-        self._pop_transform(self._transform)
+        self._is_closed = True
 
 
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
