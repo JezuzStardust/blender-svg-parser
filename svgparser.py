@@ -1042,21 +1042,166 @@ class SVGGeometryPOLYLINE(SVGGeometry):
 
     def __init__(self, node, context):
         """
+        Init the <polyline> using default values (points is empty).
         """
         
         super().__init__(node, context)
 
         # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
-        self._points = [('0','0'), ('0','0')]
+        self._points = []
 
 
     def parse(self):
         """
         Parse the node data.
         """
-        pass
-        # Time to whip out some good ol' regular expressions. 
+        points = self._node.getAttribute('points')
 
+        # sign? integers | integers.
+        # sign? integers.integers | .integers
+        # sign? (integers | integers. | integers.integers | .integers ) 
+        # [eE]?[+-]? (integers | integers. | integers.integers | .integers ) 
+        
+
+        match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
+
+        number_matcher = re.compile(match_number) 
+
+        previous = None
+        for p in number_matcher.findall(points):
+            if previous is None: # Skips last number if number of points is odd.
+                previous = float(p[0])
+            else: 
+                self._points.append((previous, float(p[0])))
+                previous = None
+     
+
+    def create_blender_splines(self):
+        """
+        Creates the splines in Blender. 
+        """
+
+        # TODO: It is better to create the spline within the loop (for point...). 
+        # In this way, we use the first point of the spline directly when it is
+        # created and the remaining points are added. 
+        # No need for 'first_point'.
+        if BLENDER:
+
+            name = 'Polyline'
+            curve = bpy.data.curves.new(name, 'CURVE')
+            obj = bpy.data.objects.new(name, curve)
+            self._context['blender_collection'].objects.link(obj)
+            cu = obj.data 
+
+            cu.dimensions = '2D'
+            cu.fill_mode = 'BOTH'
+            #cu.materials.append(...)
+
+            cu.splines.new('BEZIER')
+
+            spline = cu.splines[-1]
+            spline.use_cyclic_u = False
+
+        first_point = True
+
+        self._push_transform(self._transform) 
+
+        for point in self._points:
+            # Add point and set the coordinates of the point and the handles.
+            # Remember to transform! 
+            if not first_point:
+                spline.bezier_points.add(1)
+
+            bezt = spline.bezier_points[-1]
+            bezt.co = self._transform_coord(point)
+            bezt.handle_left_type = 'VECTOR'
+            bezt.handle_right_type = 'VECTOR'
+            first_point = False
+            
+        self._pop_transform(self._transform)
+
+class SVGGeometryPOLYGON(SVGGeometry):
+    """
+    SVG <polygon>.
+    """
+    # TODO: Refactor this and POLYLINE. They only differ by the curve being closed or not. 
+    __slots__ = ('_points')
+
+    def __init__(self, node, context):
+        """
+        Init the <polyline> using default values (points is empty).
+        """
+        
+        super().__init__(node, context)
+
+        # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
+        self._points = []
+
+
+    def parse(self):
+        """
+        Parse the node data.
+        """
+        points = self._node.getAttribute('points')
+
+        # sign? integers | integers.
+        # sign? integers.integers | .integers
+        # sign? (integers | integers. | integers.integers | .integers ) 
+        # [eE]?[+-]? (integers | integers. | integers.integers | .integers ) 
+        
+
+        match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
+
+        number_matcher = re.compile(match_number) 
+
+        previous = None
+        for p in number_matcher.findall(points):
+            if previous is None: # Skips last number if number of points is odd.
+                previous = float(p[0])
+            else: 
+                self._points.append((previous, float(p[0])))
+                previous = None
+     
+
+    def create_blender_splines(self):
+        """
+        Creates the splines in Blender. 
+        """
+
+        if BLENDER:
+
+            name = 'Polyline'
+            curve = bpy.data.curves.new(name, 'CURVE')
+            obj = bpy.data.objects.new(name, curve)
+            self._context['blender_collection'].objects.link(obj)
+            cu = obj.data 
+
+            cu.dimensions = '2D'
+            cu.fill_mode = 'BOTH'
+            #cu.materials.append(...)
+
+            cu.splines.new('BEZIER')
+
+            spline = cu.splines[-1]
+            spline.use_cyclic_u = True
+
+        first_point = True
+
+        self._push_transform(self._transform) 
+
+        for point in self._points:
+            # Add point and set the coordinates of the point and the handles.
+            # Remember to transform! 
+            if not first_point:
+                spline.bezier_points.add(1)
+
+            bezt = spline.bezier_points[-1]
+            bezt.co = self._transform_coord(point)
+            bezt.handle_left_type = 'VECTOR'
+            bezt.handle_right_type = 'VECTOR'
+            first_point = False
+            
+        self._pop_transform(self._transform)
 
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'g':   SVGGeometryG,
@@ -1065,6 +1210,7 @@ SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'circle': SVGGeometryCIRCLE, 
                         'line': SVGGeometryLINE,
                         'polyline': SVGGeometryPOLYLINE,
+                        'polygon': SVGGeometryPOLYGON,
                         }
 
 
