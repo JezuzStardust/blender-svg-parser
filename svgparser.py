@@ -19,7 +19,7 @@
 #
 # Based on the Blender addon "IMPORT SVG CURVE?????" by JM Soler, Sergey Sharybin 
 # Additions and mofications: 
-# Copyright (C) 2020 Jens Zamanian, JezuzStardust
+# Copyright (C) 2020 Jens Zamanian, https://github.com/JezuzStardust
 
 import xml.dom.minidom
 import re
@@ -121,8 +121,8 @@ def svg_parse_coord(coord, size = 0): # Perhaps the size should always be used.
 # Put this in the end. 
 
 SVG_EMPTY_STYLE = {'fill': None, # TODO: Initialize to black.
-                   'stroke': None,
-                   'stroke-width': None,
+                   'stroke': 'none',
+                   'stroke-width': 'none',
                    'stroke-linecap': 'butt',
                    'stroke-linejoin': 'miter',
                    'stroke-miterlimit': 4 
@@ -521,6 +521,28 @@ class SVGGeometry():
         return m @ v
 
 
+    def _new_blender_curve(self, name, is_cyclic):
+        """
+        Create new curve object in Blender. 
+        """
+        # Create Blender curve object. 
+        curve = bpy.data.curves.new(name, 'CURVE')
+        obj = bpy.data.objects.new(name, curve)
+        self._context['blender_collection'].objects.link(obj)
+        cu = obj.data 
+
+        cu.dimensions = '2D'
+        cu.fill_mode = 'BOTH'
+        #cu.materials.append(...)
+
+        cu.splines.new('BEZIER')
+
+        spline = cu.splines[-1]
+        spline.use_cyclic_u = is_cyclic
+
+        return spline
+
+
 class SVGGeometryContainer(SVGGeometry):
     """
     Container class for SVGGeometry. 
@@ -687,7 +709,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._height = self._node.getAttribute('height') or '0'
         self._rx = self._node.getAttribute('rx') or '0'
         self._ry = self._node.getAttribute('ry') or '0'
-        
+
 
     def create_blender_splines(self):
         """ 
@@ -700,12 +722,12 @@ class SVGGeometryRECT(SVGGeometry):
         y = svg_parse_coord(self._y, vB[1])
         w = svg_parse_coord(self._width, vB[0])
         h = svg_parse_coord(self._height, vB[1]) 
-        
+
         rx = ry = 0
         rad_x = self._rx 
         rad_y = self._ry
 
-        # For radii rx and ry, resolve % values against the width and height,
+        # For radii rx and ry, resolve % values against half the width and height,
         # respectively. It is not clear from the specification which width
         # and height are considered. 
         # In SVG 2.0 it seems to indicate that it should be the width and height
@@ -727,7 +749,7 @@ class SVGGeometryRECT(SVGGeometry):
             rx = min(ry, w/2)
         else: 
             rounded = False
-       
+
         # Approximation of elliptic curve for corner.
         # Put the handles semi minor(or major) axis radius times 
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
@@ -735,9 +757,6 @@ class SVGGeometryRECT(SVGGeometry):
         factor_x = rx * (math.sqrt(7) - 1)/3
         factor_y = ry * (math.sqrt(7) - 1)/3
 
-        # TODO: In case it is not rounded each point is counted twice!
-        # TODO: Consider using control points away from co in 
-        # all cases. Makes editing afterwards easier. 
         if rounded:
             coords = [((x + rx, y), (x + rx - factor_x, y), None),
                       ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
@@ -750,24 +769,11 @@ class SVGGeometryRECT(SVGGeometry):
         else:
             coords = [(x,y), (x + w, y), (x + w, y + h), (x, y + h)]
 
-        # Create Blender curve object. 
-        # This code is identical in all classes, except for the name of the 
-        # curve/object. 
-        if BLENDER:
-            curve = bpy.data.curves.new('Rect', 'CURVE')
-            obj = bpy.data.objects.new('Rect', curve)
-            self._context['blender_collection'].objects.link(obj)
-            cu = obj.data 
+        name = self._node.getAttribute('id') or self._node.getAttribute('class') 
+        if not name:
+            name = 'Rect'
 
-            cu.dimensions = '2D'
-            cu.fill_mode = 'BOTH'
-            #cu.materials.append(...)
-
-            cu.splines.new('BEZIER')
-
-            spline = cu.splines[-1]
-            spline.use_cyclic_u = True
-
+        spline = self._new_blender_curve(name, True) 
 
         self._push_transform(self._transform)
 
@@ -885,27 +891,14 @@ class SVGGeometryELLIPSE(SVGGeometry):
         # except for name of curve. 
         # Move to superclass and pass in name.  
         # Consider also passing in id or classname, when known. 
-        if BLENDER:
-
+        name = self._node.getAttribute('id') or self._node.getAttribute('class')
+        if not name:
             if self._is_circle:
                 name = 'Circle'
             else:
                 name = 'Ellipse'
 
-            curve = bpy.data.curves.new(name, 'CURVE')
-            obj = bpy.data.objects.new(name, curve)
-            self._context['blender_collection'].objects.link(obj)
-            cu = obj.data 
-
-            cu.dimensions = '2D'
-            cu.fill_mode = 'BOTH'
-            #cu.materials.append(...)
-
-            cu.splines.new('BEZIER')
-
-            spline = cu.splines[-1]
-            spline.use_cyclic_u = True
-
+        spline = self._new_blender_curve(name, True)
 
         first_point = True
 
@@ -983,54 +976,33 @@ class SVGGeometryLINE(SVGGeometry):
         x2 = svg_parse_coord(self._x2, vB[0])
         y2 = svg_parse_coord(self._y2, vB[1])
 
-
-        # (coordinate, first handle, second handle)
-        # A bit redundant in this case, but doing it this way
-        # makes it potentially possible to reuse code. 
         # TODO: Check for code reuse. 
         # TODO: Consider allowing for handle to be empty or None in
         # cases where coincident with point coordinate.
-        coords = [((x1, y1), (x1, y1), (x1, y1)), ((x2, y2), (x2, y2),(x2, y2))]
+        coords = [((x1, y1), None, None), ((x2, y2), None, None)]
 
-        # Create Blender curve object. 
-        # TODO: This part is identical for RECT, and ELLIPSE, and CIRCLE, LINE.
-        # except for name of curve. 
-        # Move to superclass and pass in name.  
-        # Consider also passing in id or classname, when known. 
-        if BLENDER:
-
+        name = self._node.getAttribute('id') or self._node.getAttribute('class') 
+        if not name:
             name = 'Line'
-            curve = bpy.data.curves.new(name, 'CURVE')
-            obj = bpy.data.objects.new(name, curve)
-            self._context['blender_collection'].objects.link(obj)
-            cu = obj.data 
 
-            cu.dimensions = '2D'
-            cu.fill_mode = 'BOTH'
-            #cu.materials.append(...)
-
-            cu.splines.new('BEZIER')
-
-            spline = cu.splines[-1]
-            spline.use_cyclic_u = False
-
+        spline = self._new_blender_curve(name, False)
 
         first_point = True
 
         self._push_transform(self._transform) 
 
         for co in coords:
-            # Add point and set the coordinates of the point and the handles.
-            # Remember to transform! 
             if not first_point:
                 spline.bezier_points.add(1)
 
             bezt = spline.bezier_points[-1]
             bezt.co = self._transform_coord(co[0])
-            bezt.handle_left = self._transform_coord(co[1])
-            bezt.handle_right = self._transform_coord(co[2])
+            # bezt.handle_left = self._transform_coord(co[1])
+            # bezt.handle_right = self._transform_coord(co[2])
+            bezt.handle_left_type = 'VECTOR'
+            bezt.handle_right_type = 'VECTOR'
             first_point = False
-            
+
         self._pop_transform(self._transform)
 
 
@@ -1047,7 +1019,6 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         
         super().__init__(node, context)
 
-        # self._data = {'x': '0.0', 'y': '0.0', 'width': '0.0', 'height': '0.0'}
         self._points = []
 
 
@@ -1074,7 +1045,7 @@ class SVGGeometryPOLYLINE(SVGGeometry):
             else: 
                 self._points.append((previous, float(p[0])))
                 previous = None
-     
+
 
     def create_blender_splines(self):
         """
@@ -1085,30 +1056,18 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         # In this way, we use the first point of the spline directly when it is
         # created and the remaining points are added. 
         # No need for 'first_point'.
-        if BLENDER:
 
+        name = self._node.getAttribute('id') or self._node.getAttribute('class')
+        if not name:
             name = 'Polyline'
-            curve = bpy.data.curves.new(name, 'CURVE')
-            obj = bpy.data.objects.new(name, curve)
-            self._context['blender_collection'].objects.link(obj)
-            cu = obj.data 
 
-            cu.dimensions = '2D'
-            cu.fill_mode = 'BOTH'
-            #cu.materials.append(...)
-
-            cu.splines.new('BEZIER')
-
-            spline = cu.splines[-1]
-            spline.use_cyclic_u = False
+        spline = self._new_blender_curve(name, False)
 
         first_point = True
 
         self._push_transform(self._transform) 
 
         for point in self._points:
-            # Add point and set the coordinates of the point and the handles.
-            # Remember to transform! 
             if not first_point:
                 spline.bezier_points.add(1)
 
@@ -1117,8 +1076,9 @@ class SVGGeometryPOLYLINE(SVGGeometry):
             bezt.handle_left_type = 'VECTOR'
             bezt.handle_right_type = 'VECTOR'
             first_point = False
-            
+
         self._pop_transform(self._transform)
+
 
 class SVGGeometryPOLYGON(SVGGeometry):
     """
@@ -1148,7 +1108,6 @@ class SVGGeometryPOLYGON(SVGGeometry):
         # sign? integers.integers | .integers
         # sign? (integers | integers. | integers.integers | .integers ) 
         # [eE]?[+-]? (integers | integers. | integers.integers | .integers ) 
-        
 
         match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
 
@@ -1161,37 +1120,24 @@ class SVGGeometryPOLYGON(SVGGeometry):
             else: 
                 self._points.append((previous, float(p[0])))
                 previous = None
-     
+
 
     def create_blender_splines(self):
         """
         Creates the splines in Blender. 
         """
 
-        if BLENDER:
-
+        name = self._node.getAttribute('id') or self._node.getAttribute('class')
+        if not name:
             name = 'Polyline'
-            curve = bpy.data.curves.new(name, 'CURVE')
-            obj = bpy.data.objects.new(name, curve)
-            self._context['blender_collection'].objects.link(obj)
-            cu = obj.data 
 
-            cu.dimensions = '2D'
-            cu.fill_mode = 'BOTH'
-            #cu.materials.append(...)
-
-            cu.splines.new('BEZIER')
-
-            spline = cu.splines[-1]
-            spline.use_cyclic_u = True
+        spline = self._new_blender_curve(name, True)
 
         first_point = True
 
         self._push_transform(self._transform) 
 
         for point in self._points:
-            # Add point and set the coordinates of the point and the handles.
-            # Remember to transform! 
             if not first_point:
                 spline.bezier_points.add(1)
 
@@ -1200,8 +1146,9 @@ class SVGGeometryPOLYGON(SVGGeometry):
             bezt.handle_left_type = 'VECTOR'
             bezt.handle_right_type = 'VECTOR'
             first_point = False
-            
+
         self._pop_transform(self._transform)
+
 
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'g':   SVGGeometryG,
@@ -1213,6 +1160,7 @@ SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'polygon': SVGGeometryPOLYGON,
                         }
 
+### End: Classes ###
 
 class SVGLoader(SVGGeometryContainer):
     """
