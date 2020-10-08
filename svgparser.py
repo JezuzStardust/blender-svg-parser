@@ -1081,6 +1081,34 @@ class SVGGeometryPOLYGON(SVGGeometryPOLYLINE):
         self._is_closed = True
 
 
+class SVGGeometryPATH(SVGGeometry):
+    """
+    SVG <path>.
+    """
+    __slots__ = ('_d')
+
+    def __init__(self, node, context):
+        """
+        Inits the path to an empty path. 
+        """
+
+        super().__init__(node, context)
+
+        self._d = []
+
+
+    def parse(self):
+        """
+        Parses the path data. 
+        """
+        d = self._node.getAttribute('d')
+        print(d)
+
+
+    def create_blender_splines(self):
+        pass
+
+
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'g':   SVGGeometryG,
                         'rect': SVGGeometryRECT,
@@ -1089,6 +1117,7 @@ SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
                         'line': SVGGeometryLINE,
                         'polyline': SVGGeometryPOLYLINE,
                         'polygon': SVGGeometryPOLYGON,
+                        'path': SVGGeometryPATH,
                         }
 
 ### End: Classes ###
