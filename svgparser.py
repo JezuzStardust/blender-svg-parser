@@ -397,10 +397,9 @@ class SVGGeometry():
 
     def _view_to_transform(self): # Remove pAR, add self. 
         """
-        Parses the viewBox into equivalent transformations.
+        Parses the viewport and viewBox and converts them into 
+        an equivalent transform.
         """
-        # TODO: Figure out what happens for % variables. 
-        # TODO: Figure out what happens for nested viewports and viewBoxes. 
 
         viewBox = self._viewBox
         viewport = self._viewport
@@ -425,6 +424,17 @@ class SVGGeometry():
             e_y = 0
             e_width = svg_parse_coord('100%', current_viewBox[2])
             e_height = svg_parse_coord('100%', current_viewBox[3])
+
+        # In case outermost viewport is not specified.
+        # The specification does not say what to do in this case 
+        # in general. So I just use a random default. 
+        # But perhaps it would be better to also check the viewBox.
+        # What happens if the aspect ratio is not one-to-one?
+        if e_width == 0.0:
+            e_width = 100.0
+        if e_height == 0.0:
+            e_height = 100.0
+
 
         # TODO: Handle 'none'. 
         pARx = preserveAspectRatio[0]
@@ -1121,33 +1131,8 @@ class SVGGeometryPATH(SVGGeometry):
 
 
     def create_blender_splines(self):
-
         """
-        Plan:
-        1. Start with move-to. 
-        The main things to consider are the following:
-        - An initial m is still absolute. 
-        - When we reach a new M/m we must create a new Blender spline. 
-        - An M (m) followed by more than one coordinate pair should be treated 
-          as implicit lineto with absolute (relative) coordinates. This is true
-          even if it is first. 
-        
-        2. Move onto L, V, and H. 
-        - Again, for these, we may have more than one set of coordinates following. 
-        
-        3. Go into CUBIC Bezier C,c, S, s first. Since Blender curves ARE cubic Bezier this is easy. 
-        - 
-        4. Then do QUADRATIC Bezier curves, Q, q, T, t. Thankfully, these can be 
-           exactly modelled by a cubic Bezier curve.
-        5. Finally do an elliptic curve. This will take more work since it has a lot
-           of different parameters, and the fact that ellipses can only be approximated
-           by cubic Bezier curves (however, this approximation can be done to a high
-           degree. 
-        6. We must also handle the Z, z parameter. However, this is easy. 
-
-        7. NOTE: If a fill color is set in the style, then all curves have to 
-           be closed from the startpoint to the endpoint in order for Blender
-           to correctly fill the spline. 
+        Create the Blender curves needed to draw out the path. 
         """
         
         # viewBox not needed since we cannot have % in coordinates. 
@@ -1159,7 +1144,13 @@ class SVGGeometryPATH(SVGGeometry):
 
         for spline in self._splines:
 
-            blender_spline = self._new_blender_curve(name, False) 
+            if spline[-1] == 'closed':
+                is_closed = True
+                spline.pop()
+            else:
+                is_closed = False
+
+            blender_spline = self._new_blender_curve(name, is_closed) 
             
             self._add_points_to_blender(spline, blender_spline)
 
@@ -1612,6 +1603,13 @@ class SVGPATHParser:
         return (h_x, h_y)
 
 
+    def _path_close(self, command):
+        """
+        Closes the path.
+        """
+        self._current_spline.append('closed')
+
+
 class SVGPATHDataSupplier:
     """
     Supplies the data from the d attribute, one slot at the time. 
@@ -1711,9 +1709,9 @@ class SVGLoader(SVGGeometryContainer):
         m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))
         m = m @ Matrix.Scale(-scale, 4, Vector((0, 1, 0))) 
         
-        context = {'current_viewport': (0, 0), # Not used so far. 
+        context = {'current_viewport': (0, 0), # TODO: Not used so far. 
                    'current_viewBox': (0, 0, 0, 0), # Same as viewBox_stack[-1].
-                   'viewport_stack': [(0, 0, 0, 0)], # Not used so far.  
+                   'viewport_stack': [(0, 0, 0, 0)], # TODO: Not used so far.  
                    'viewBox_stack': [(0, 0, 0, 0)], # Used. 
                    'current_transform': m,       # Used
                    'current_style': SVG_EMPTY_STYLE, # Will be used. Probably also a stack is needed. This stack should have a special push method that considers the previous 
