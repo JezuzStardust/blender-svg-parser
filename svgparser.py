@@ -25,17 +25,23 @@ import xml.dom.minidom
 import re
 import bpy
 from mathutils import Matrix, Vector
-import math
-from math import pi, tan
+from math import tan, sin, cos, acos, sqrt, pi
 import os
-BLENDER = True # Debug flag 
-### Reading Coordinates ###
 
+
+### Reading Coordinates ###
 # For 96 dpi:  
-# 1 in = 96 px # 1 cm = 96 / 2.54 px # 1 mm = 96 / 25.4 px # 1 pt = 1 / 72 in = 96 / 72 px = 1.33... px # 1 pc = 16 px # The em and ex are relative to the font-size if present.  # If support is added for font-sizes, we should base em and ex on those 
-# instead.  # E.g. if font-size="150" is used, then 1 em = 150 px. 
+# 1 in = 96 px 
+# 1 cm = 96 / 2.54 px 
+# 1 mm = 96 / 25.4 px 
+# 1 pt = 1 / 72 in = 96 / 72 px = 1.33... px 
+# 1 pc = 16 px 
+# TODO: Fix em an ex if text handling is added.
+# The em and ex are relative to the font-size if present.  
+# E.g. if font-size="150" is used, then 1 em = 150 px. 
 # Em units. Equivalent to the computed font-size in effect for an element.
-# Ex units. Equivalent to the height of a lower-case letter in the font (and font-size) in effect for an element. If the font doesn’t include lower-case letters, or doesn’t include the metadata about the ex-height, then 1ex = 0.5em.
+# Ex units. Equivalent to the height of a lower-case letter in the font.
+# If the font doesn’t include lower-case letters, or doesn’t include the metadata about the ex-height, then 1ex = 0.5em.
 # SVG_UNITS = {'': 1.0,
 #         'px': 1.0,
         # 'in': 90.0,
@@ -65,14 +71,15 @@ SVG_UNITS = {'': 1.0,
 # Optional group: . followed by zero or more digits. 
 # Optional group e or E followed by optional sign followed by one or more digits. 
 # The optional pattern after | is for the cases where the integer part is not present. 
+# TODO: Define all regex outside of functions. No need to recompile every time. 
 match_number_part = r'(-?\d+(\.\d*)?([eE][-+]?\d+)?)|(-?\.\d+([eE][-+]?\d+)?)' 
 re_match_number_part = re.compile(match_number_part)  
-# E.g. for '-1.232e+2cm' the match group(0) will be '-1.232e+2' and end(0) 
-# will be 9, the first index after the numerical part. 
+# E.g. for '-1.232e+2cm' the match group(0) will be '-1.232e+2'.
 
 def read_float(text, start_index = 0):
     """ 
     Reads a float value from a string, starting from start_index. 
+
     Returns the value as a string and the index to the first character after the value. 
     """
 
@@ -89,7 +96,7 @@ def read_float(text, start_index = 0):
     match = re_match_number_part.match(text_part) 
 
     if match is None:
-        raise Exception('Invalide float value near ' + text[start_index:start_index + 10])
+        raise Exception('Invalid float value near ' + text[start_index:start_index + 10])
         
     value_string = match.group(0)
     end_index = start_index + match.end(0) 
@@ -118,7 +125,7 @@ def svg_parse_coord(coord, size = 0): # Perhaps the size should always be used.
 
 
 ### Constants ###
-# Put this in the end. 
+# TODO: Put this in the end. 
 
 SVG_EMPTY_STYLE = {'fill': None, # TODO: Initialize to black.
                    'stroke': 'none',
@@ -559,6 +566,7 @@ class SVGGeometry():
         # Alternatively, call it from here. 
         first_point = True
         for co in coords:
+
             if not first_point: 
                 spline.bezier_points.add(1)
             
@@ -787,8 +795,8 @@ class SVGGeometryRECT(SVGGeometry):
         # Put the handles semi minor(or major) axis radius times 
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
-        factor_x = rx * (math.sqrt(7) - 1)/3
-        factor_y = ry * (math.sqrt(7) - 1)/3
+        factor_x = rx * (sqrt(7) - 1)/3
+        factor_y = ry * (sqrt(7) - 1)/3
 
         if rounded:
             coords = [((x + rx, y), (x + rx - factor_x, y), None),
@@ -875,7 +883,7 @@ class SVGGeometryELLIPSE(SVGGeometry):
         cy = svg_parse_coord(self._cy, vB[1])
 
         if self._is_circle:
-            weighted_diagonal = math.sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/math.sqrt(2)
+            weighted_diagonal = sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/sqrt(2)
             rx = ry = svg_parse_coord(self._rx, weighted_diagonal)  
         else:
             rx = svg_parse_coord(self._rx, vB[0])
@@ -885,8 +893,8 @@ class SVGGeometryELLIPSE(SVGGeometry):
         # Put the handles semi minor(or major) axis radius times 
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
-        factor_x = rx * (math.sqrt(7) - 1)/3
-        factor_y = ry * (math.sqrt(7) - 1)/3
+        factor_x = rx * (sqrt(7) - 1)/3
+        factor_y = ry * (sqrt(7) - 1)/3
 
         # Coordinate, first handle, second handle
         coords = [((cx - rx, cy), (cx - rx, cy + factor_y), (cx - rx, cy - factor_y)),
@@ -1085,7 +1093,8 @@ class SVGGeometryPATH(SVGGeometry):
     """
     SVG <path>.
     """
-    __slots__ = ('_d')
+    __slots__ = ('_splines')
+
 
     def __init__(self, node, context):
         """
@@ -1094,19 +1103,569 @@ class SVGGeometryPATH(SVGGeometry):
 
         super().__init__(node, context)
 
-        self._d = []
+        self._splines = None
 
 
     def parse(self):
         """
         Parses the path data. 
         """
+        super().parse()
+
         d = self._node.getAttribute('d')
-        print(d)
+
+        parser = SVGPATHParser(d)
+        parser.parse()
+        
+        self._splines = parser.get_data()
 
 
     def create_blender_splines(self):
-        pass
+
+        """
+        Plan:
+        1. Start with move-to. 
+        The main things to consider are the following:
+        - An initial m is still absolute. 
+        - When we reach a new M/m we must create a new Blender spline. 
+        - An M (m) followed by more than one coordinate pair should be treated 
+          as implicit lineto with absolute (relative) coordinates. This is true
+          even if it is first. 
+        
+        2. Move onto L, V, and H. 
+        - Again, for these, we may have more than one set of coordinates following. 
+        
+        3. Go into CUBIC Bezier C,c, S, s first. Since Blender curves ARE cubic Bezier this is easy. 
+        - 
+        4. Then do QUADRATIC Bezier curves, Q, q, T, t. Thankfully, these can be 
+           exactly modelled by a cubic Bezier curve.
+        5. Finally do an elliptic curve. This will take more work since it has a lot
+           of different parameters, and the fact that ellipses can only be approximated
+           by cubic Bezier curves (however, this approximation can be done to a high
+           degree. 
+        6. We must also handle the Z, z parameter. However, this is easy. 
+
+        7. NOTE: If a fill color is set in the style, then all curves have to 
+           be closed from the startpoint to the endpoint in order for Blender
+           to correctly fill the spline. 
+        """
+        
+        # viewBox not needed since we cannot have % in coordinates. 
+        # We must, however, push transformation, and then always transform
+        # the coordinates. 
+        self._push_transform(self._transform)
+        
+        name = 'Path'
+
+        for spline in self._splines:
+
+            blender_spline = self._new_blender_curve(name, False) 
+            
+            self._add_points_to_blender(spline, blender_spline)
+
+        self._pop_transform(self._transform)
+
+
+class SVGPATHParser:
+    """
+    Helper for parsing path. 
+    """
+
+    # TODO: Consider using a dict for points. 
+    # It is hard to remember which entry is what without it.
+    # In this case, we should also consider using this for all classes
+    # that create geometry. 
+
+    # TODO: How do we handle closed curves vs open curves?
+
+    # TODO: Consider using shorter variable names. 
+    # Also, it might be useful to have a separate variable for 
+    # the last point, since it is used so frequently. 
+    # In that case there can be a function which adds the point both
+    # to the current spline and updates the last point. 
+
+    # TODO: Refactor the code. A lot of repetition (e.g. the previous 
+    # point is updated in a similar manner in all cases. 
+
+
+    __slots__ = ('_data',
+                 '_index',
+                 '_current_spline',
+                 '_splines', # List containing all finished curves. 
+                 '_commands')
+
+
+    def __init__(self, d): 
+
+        self._data = SVGPATHDataSupplier(d)
+        self._index = 0
+        self._current_spline = None
+        self._splines = []
+
+        self._commands = {'M': self._path_move_to, 
+                          'L': self._path_line_to,
+                          'H': self._path_line_to,
+                          'V': self._path_line_to,
+                          'C': self._path_curve_to,
+                          'S': self._path_curve_to,
+                          'Q': self._path_curve_to,
+                          'T': self._path_curve_to,
+                          'A': self._path_elliptical_arc_to,
+                          'Z': self._path_close,
+                          }
+
+
+    def parse(self):
+        # Split out data handler into separate class. 
+        # This class should have a dict with names of 
+        # the functions in question. 
+        while not self._data.eof():
+            cmd = self._data.next()
+            parse_function = self._commands.get(cmd.upper())
+            parse_function(cmd)
+
+        # TODO: Handle closed curves! 
+
+        self._splines.append(self._current_spline)
+
+
+    def get_data(self):
+        return self._splines 
+
+
+    def _get_next_coord_pair(self, relative, previous_point):
+        """
+        Extract the next two coordinates from the data. 
+        """
+        x = self._data.next_coord()
+        y = self._data.next_coord()
+        if relative and previous_point is not None:
+            x += previous_point[0]
+            y += previous_point[1]
+        return x, y
+
+
+    def _get_next_coord(self, relative, previous_point):
+        """
+        Extract the next coordinate from the data. 
+        """
+        p = self._data.next_coord()
+        if relative and previous_point is not None:
+            p += previous_point
+        return p
+
+
+    def _get_last_point(self):
+        """
+        Return the last point. 
+        We need to know the coordinates if the next point has relative coordinates.
+        But we also need to update it when we add the next point (specifically the 
+        handles). 
+        """
+        if self._current_spline is None:
+            return None
+        else:
+            return self._current_spline[-1]
+
+
+    def _path_move_to(self, command):
+        """
+        The SVG Path M and m commands. 
+        Moves to a new point and creates a new subpath. 
+        """
+        if self._current_spline is not None:
+            self._splines.append(self._current_spline)
+        self._current_spline = []
+
+        # Check if m is used and move the counter forward in the data. 
+        relative = command.islower() 
+        x, y = self._get_next_coord_pair(relative, None) # The first move does not care if relative...
+
+        # Should I wait with appending the points until 
+        # I know what the handle will be? 
+        # On the other hand, using [] for points,
+        # makes it possible to go back and change that 
+        # later. 
+        self._current_spline.append([(x,y), None, None, 'M', None])
+
+        while not self._data.eof() and not self._data.check_next().isalpha():
+            last_point = self._get_last_point()
+            last_point[2] = None # Update right handle of last point. 
+            last_point[4] = 'L' # Outgoing type of last point. 
+            # Remaining points are implicit line-to commands. 
+            x, y = self._get_next_coord_pair(relative, last_point[0]) # ...but the remaining ones do. 
+            self._current_spline.append([(x,y), None, None, 'L', None])
+
+
+    def _path_line_to(self, command):
+        """
+        The SVG <path> L, l, H, h, and V, v commands in the d attribute. 
+        Draws a line from the current point to the next. 
+        """
+        # According to the specification, a path must start 
+        # with a move-to command. 
+        # So there must already be a spline. 
+
+        relative = command.islower() 
+
+        command = command.lower()
+        # A line-to can be followed by more than one coordinate pair, 
+        # i.e. implicit line-to's. 
+        while not self._data.eof() and not self._data.check_next().isalpha():
+            last_point = self._get_last_point()
+            last_point[2] = None # Right handle of last point. TODO: Is this needed?
+            last_point[4] = 'L' # Outgoing type of last point. 
+            if command == 'l':
+                x, y = self._get_next_coord_pair(relative, last_point[0]) 
+                self._current_spline.append([(x,y), None, None, 'L', None])
+            elif command == 'h':
+                x = self._get_next_coord(relative, last_point[0][0])
+                y = last_point[0][1]
+                self._current_spline.append([(x,y), None, None, 'L', None])
+            elif command == 'v':
+                x = last_point[0][0]
+                y = self._get_next_coord(relative, last_point[0][1])
+                self._current_spline.append([(x,y), None, None, 'L', None])
+                # TODO: Needed?
+                self._current_spline[-1][2] = None # None means 'VECTOR' type. 
+            else: 
+                # TODO: Raise exception?
+                print('ERROR')
+
+
+    def _path_curve_to(self, command):
+        """
+        This handles the SVG <path> commands C, c, S, s, Q, q, T, and t. 
+        """
+        relative = command.islower()
+        command = command.lower()
+
+        while not self._data.eof() and not self._data.check_next().isalpha():
+
+            last_point = self._get_last_point()
+            last_point[4] = 'C' # Outgoing type from last point.
+
+            if command == 'c':
+                # Update right handle of previous point. 
+                previous_handle_x, previous_handle_y = self._get_next_coord_pair(relative, last_point[0])
+                last_point[2] = (previous_handle_x, previous_handle_y)
+
+                handle_x, handle_y = self._get_next_coord_pair(relative, last_point[0])
+                x, y = self._get_next_coord_pair(relative, last_point[0])
+
+                self._current_spline.append([(x, y), (handle_x, handle_y), None, 'C', None])
+
+            elif command == 's':
+                # Update right handle of previous point. 
+                handle_x, handle_y = self._get_next_coord_pair(relative, self._last_point) 
+                last_handle_left = last_point[1] 
+                last_point_type = last_point[3]
+
+                # TODO: The first check might be redundant.
+                if last_handle_left is None or last_point_type != 'C': 
+                    last_handle_right = last_point[0]
+                else:
+                    last_handle_right = self._flip_handle(last_handle_left) # Flip this! 
+                last_point[2] = last_handle_right 
+
+                x, y = self._get_next_coord_pair(relative, last_point[0]) 
+                self._current_spline.append([(x,y), (handle_x, handle_y), None, 'C', None])
+
+            elif command == 'q':
+                q_handle_x, q_handle_y = self._get_next_coord_pair(relative, last_point[0])
+                last_handle_right_x = 2 * q_handle_x / 3 + last_point[0][0] / 3
+                last_handle_right_y = 2 * q_handle_y / 3 + last_point[0][1] / 3
+
+                last_point[2] = (last_handle_right_x, last_handle_right_y)
+
+                x, y = self._get_next_coord_pair(relative, last_point[0])
+                # Creating an equivalent quadratic Bézier curve using a cubic.
+                # See https://pomax.github.io/bezierinfo/#reordering 
+                handle_x = 2 * q_handle_x / 3 + x / 3
+                handle_y = 2 * q_handle_y / 3 + y / 3
+
+                self._current_spline.append([(x,y), (handle_x, handle_y), None, 'C', None])
+
+            elif command == 't':
+                # First check if the previous point was really a Q or a T. 
+
+                # We can infer the quadratic Bézier handle of the previous point. 
+                # last_handle_left = 2 * q_handle / 3 + last_point / 3 => 
+                # q_handle = 3 * last_handle_left / 2 - last_point / 2
+                # Now we flip it and convert back to a cubic Bezier handle. 
+                # However, this is eqivalent to just flipping it. 
+                # So instead, we first flip and then infer what the 
+                # new q_handle is and then calculate the left handle of the next point 
+                x, y = self._get_next_coord_pair(relative, last_point[0]) # Update so that last_point is automatic. 
+                last_point_coord = last_point[0]
+                last_handle_left = last_point[1] 
+                if last_point[3] == 'C': 
+                    last_handle_right = self._flip_handle(last_handle_left) 
+                else:
+                    last_handle_right = last_point[0]
+
+                last_point[2] = last_handle_right 
+
+                q_handle_x = 3 * last_handle_right[0] / 2 - last_point_coord[0] / 2
+                q_handle_y = 3 * last_handle_right[1] / 2 - last_point_coord[1] / 2 
+                
+                handle_left_x = 2 * q_handle_x /3 + x / 3 
+                handle_left_y = 2 * q_handle_y /3 + y / 3 
+               
+                self._current_spline.append([(x,y), (handle_left_x, handle_left_y), None, 'C', None])
+
+
+            # TODO: Make this more consistent. 
+            # The _last_point should probably include everything, i.e. 
+            # both point and handles since the handles sometimes need to 
+            # be updated. 
+            # Figure out how to deal with closed curves. 
+            # Perhaps a dict for points is not such a bad idea. 
+            # Dicts improve readability. 
+            # They can also include info about the incoming and outgoing 
+            # curve types. 
+            # However, that prevents us from reusing path creation code,
+            # unless all other classes are also rewritten. 
+            # Perhaps 'closed' or 'open' can just be added to the end of the list. 
+            """
+            point = {'x': x_coord, 
+                     'y': y_coord,
+                     'handle_left': handle_left_coord,
+                     'handle_right': handle_right_coord,
+                     'incoming_type': None|Ll|Vv|Hh|Cc|Ss|Qq|Tt|Aa,
+                     'outgoing_type': See above}
+            Only two handle types relevant: VECTOR and FREE.
+            For all straight lines we can use VECTOR. 
+            Since these are automatically placed, we just need to 
+            make the coordinates for them to be None, to know. 
+            If the coordinates are not None, then the handle type should be
+            FREE.
+            point = [(x,y), (hlx, hly), (hrx, hry), type_l, type_r]
+            type_l = incomming curve type
+            type_r = outgoing curve type
+            """
+
+
+    def _path_elliptical_arc_to(self, command):
+        """
+        Parses the SVG <path> A and a commands.
+
+        A|a rx ry x_axis_rotation large_arc_flag sweep_flag x y
+        """
+        # This is complicated for two reasons. 
+        # First: The arc is a bit hard to infer from the data (with the flags etc).
+        # Second: An ellipse can only be approximated with a Bézier curve. 
+        # References:
+        # For the first problem: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
+        # For the second problem: http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf 
+        relative = command.islower()
+        command = command.lower()
+
+        while not self._data.eof() and not self._data.check_next().isalpha():
+            last_point = self._get_last_point() 
+
+            x1, y1 = last_point[0]
+            rx, ry = self._get_next_coord_pair(False, None)
+            angle = self._get_next_coord(False, None)
+            fA = int(self._data.next())     # Flags are best kept as integers. 
+            fS = int(self._data.next())
+            x2, y2 = self._get_next_coord_pair(relative, last_point[0])
+
+            rx, ry, cx, cy, theta1, dtheta = self._calculate_arc(rx, ry, angle, fA, fS, x1, y1, x2, y2)
+            print('cx cy theta1 dtheta', cx, cy, theta1, dtheta)
+
+            # TODO: Edge-case: dtheta = 0 (in case start and endpoints are the same!) 
+            # TODO: Fix case where there should be a straight line, i.e. when 
+            # one of rx or ry is zero. 
+
+            dang = dtheta / 4
+            angle *= pi / 180
+
+            alpha = sin(dang) * ( sqrt(4 + 3 * tan( dang / 2)**2 ) - 1 ) / 3
+
+            for i in range(1,5):
+                last_point = self._get_last_point()
+                last_point[4] = 'A' # Update handle. 
+            
+            # Ex Ey same as last point. 
+                x = cx + rx * cos(angle) * cos(theta1 + i * dang) - ry * sin(angle) * sin(theta1 + i * dang) 
+                y = cy + rx * sin(angle) * cos(theta1 + i * dang) + ry * cos(angle) * sin(theta1 + i * dang)
+                Epx = - rx * cos(angle) * sin(theta1 + i * dang) - ry * sin(angle) * cos(theta1 + i * dang)
+                Epy = - rx * sin(angle) * sin(theta1 + i * dang) + ry * cos(angle) * cos(theta1 + i * dang)
+                Eppx = - rx * cos(angle) * sin(theta1 + (i - 1) * dang) - ry * sin(angle) * cos(theta1 + (i - 1) * dang)
+                Eppy = - rx * sin(angle) * sin(theta1 + (i - 1) * dang) + ry * cos(angle) * cos(theta1 + (i - 1) * dang)
+
+
+                last_handle_r_x = last_point[0][0] + alpha * Eppx 
+                last_handle_r_y = last_point[0][1] + alpha * Eppy 
+
+                last_point[2] = (last_handle_r_x, last_handle_r_y) 
+
+                next_handle_l_x = x - alpha * Epx 
+                next_handle_l_y = y - alpha * Epy
+
+                self._current_spline.append([(x, y), (next_handle_l_x, next_handle_l_y) , None, 'A', None])
+
+
+    def _calculate_arc(self, rx, ry, angle, fA, fS, x1, y1, x2, y2):
+        """
+        Helper function for _path_elliptical_arc_to. 
+        Calculates the center point parametrization of the elliptical arc.
+        """
+        # Ref: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
+        # TODO: Consider using numpy for this. 
+        # There is a lot of vector algebra going on. 
+        # Many things can be simplified a lot (and perhaps speed up). 
+
+        angle *= pi / 180
+
+        xp = cos(angle) * (x1 - x2) / 2 + sin(angle) * (y1 - y2) / 2 
+        yp = - sin(angle) * (x1 - x2) / 2 + cos(angle) * (y1 - y2) / 2 
+
+        # TODO: Fix this! 
+        if rx == 0 or ry == 0: 
+            print("DRAW A LINE INSTEAD!", "Called from _calculate_arc in SVGPATHParser")
+
+        # TODO: Consider making rx, ry an instance variable. 
+        # In that case it does not have to be passed back by 
+        # the function. 
+        rx, ry = self._correct_radii(rx, ry, xp, yp)
+        
+        fac = sqrt(rx**2 * ry**2 - rx**2 * yp**2 - ry**2 * xp**2) / sqrt(rx**2 * yp**2 + ry**2 * xp**2)
+
+        if fA == fS:
+            fac *= -1
+         
+        cpx = fac * rx * yp / ry
+        cpy = - fac * ry * xp / rx
+
+        cx = cos(angle) * cpx - sin(angle) * cpy + (x1 + x2) / 2
+        cy = sin(angle) * cpx + cos(angle) * cpy + (y1 + y2) / 2
+
+        theta_1 = acos( (xp - cpx) / rx / sqrt( (xp - cpx)**2 / rx**2 + (yp - cpy)**2 / ry**2 ))
+        
+        if yp < cpy:
+            theta_1 *= -1 
+
+        num = ( cpx ** 2 - xp ** 2) / rx ** 2 + (cpy ** 2 - yp ** 2) / ry ** 2 
+
+        denom1 = sqrt( (xp - cpx) ** 2 / rx ** 2 + (yp - cpy) ** 2 / ry ** 2)
+        denom2 = sqrt( (xp + cpx) ** 2 / rx ** 2 + (yp + cpy) ** 2 / ry ** 2)
+
+        print('denom1', denom1)
+        # And here. 
+        delta_theta = acos( num / (denom1 * denom2))
+
+        if (xp - cpx) * (-yp - cpy) / (rx * ry) - (yp - cpy) * (-xp - cpx) / (rx * ry) < 0:
+            delta_theta *= -1
+
+
+        if fS == 0 and delta_theta > 0: 
+            delta_theta -= 2 * pi 
+
+        if fS == 1 and delta_theta < 0:
+            delta_theta += 2 * pi
+
+        return rx, ry, cx, cy, theta_1, delta_theta 
+
+
+    def _correct_radii(self, rx, ry, xp, yp):
+        """
+        Helper function to _calculate_arc.
+        Corrects the radii in case the ellipse is not large enough to reach
+        from one point to the other. In this case, it uniformly scales the 
+        ellipse until it exactly touches the two endpoints. 
+        """
+        # 1. Check that they are nonzero. If rx = 0 or ry = 0, draw a straight line. 
+        # 2. Take the absolute value of rx, ry. 
+        # 3. Make sure they are large enough. If gamma = xp**2/rx**2 + yp**2/ry**2 <= 1.0 then ok. 
+        #    Otherwise rx = sqrt(gamma) * rx, ry = sqrt(gamma) * ry. 
+        # 4. Continue with the calculations
+        print(rx, ry)
+
+        if rx == 0 or ry == 0:
+            return None # Set a flag somewhere. 
+
+        rx = abs(rx)
+        ry = abs(ry)
+        
+        gamma = xp ** 2 / rx ** 2 + yp ** 2 / ry ** 2
+
+        if gamma > 1.0:
+            rx *= sqrt(gamma)
+            ry *= sqrt(gamma)
+
+        print(rx, ry)
+        return rx, ry
+
+
+    def _flip_handle(self, handle):
+        """
+        Flips an handle around the last point. 
+
+        Used for the smooth versions of the curves. 
+        Uses the _last_point from the _current_spline.
+        """
+        last_point = self._get_last_point()[0]
+        h_x = 2 * last_point[0] - handle[0]
+        h_y = 2 * last_point[1] - handle[1]
+        return (h_x, h_y)
+
+
+class SVGPATHDataSupplier:
+    """
+    Supplies the data from the d attribute, one slot at the time. 
+    """
+    __slots__ = ('_data',
+                 '_index',
+                 '_len')
+    
+
+    def __init__(self, d):
+
+        # (?:...) is a non-capturing group. 
+        # We do not actually need the individual components. 
+
+        # TODO: Move this outside the class. 
+        # It is compiled once for every instance. 
+        match_float_or_letter = r'(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)|\w'
+        number_matcher = re.compile(match_float_or_letter) 
+
+        self._data = []
+
+        for entry in number_matcher.findall(d):
+            self._data.append(entry)
+
+        self._index = 0
+        self._len = len(self._data)
+
+
+    def eof(self):
+        return self._index >= self._len
+
+
+    def check_next(self):
+        if self.eof():
+            return None
+        else:
+            return self._data[self._index] 
+
+
+    def next(self):
+        if self.eof():
+            return None
+        else:
+            self._index += 1
+            return self._data[self._index - 1]
+
+
+    def next_coord(self):
+        token = self.next()
+
+        if token is  None:
+            return None
+        else:
+            return float(token)
 
 
 SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
@@ -1134,17 +1693,13 @@ class SVGLoader(SVGGeometryContainer):
         All geometries will be contained by this instance and the containers it contains. 
         """
 
-        # BLENDER = False # Debug flag. 
-        if BLENDER: 
-            svg_name = os.path.basename(svg_filepath)
-            scene = blender_context.scene
-            # Create new collection data block in Blender, name
-            # from SVG-file.
-            collection = bpy.data.collections.new(name=svg_name)
-            # Link this to the current scene. 
-            scene.collection.children.link(collection) 
-        else:  
-            collection = None
+        svg_name = os.path.basename(svg_filepath)
+        scene = blender_context.scene
+        # Create new collection data block in Blender, name
+        # from SVG-file.
+        collection = bpy.data.collections.new(name=svg_name)
+        # Link this to the current scene. 
+        scene.collection.children.link(collection) 
 
         node = xml.dom.minidom.parse(svg_filepath)
         
