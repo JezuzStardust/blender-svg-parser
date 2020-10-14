@@ -1139,8 +1139,8 @@ class SVGGeometryPATH(SVGGeometry):
         # We must, however, push transformation, and then always transform
         # the coordinates. 
         self._push_transform(self._transform)
-        
-        name = 'Path'
+       
+        name = self._node.getAttribute('id') or self._node.getAttribute('class')
 
         for spline in self._splines:
 
@@ -1348,7 +1348,7 @@ class SVGPATHParser:
 
             elif command == 's':
                 # Update right handle of previous point. 
-                handle_x, handle_y = self._get_next_coord_pair(relative, self._last_point) 
+                handle_x, handle_y = self._get_next_coord_pair(relative, last_point[0]) 
                 last_handle_left = last_point[1] 
                 last_point_type = last_point[3]
 
