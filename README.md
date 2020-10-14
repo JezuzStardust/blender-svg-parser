@@ -35,7 +35,8 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
 
 ## References 
-The implementation is based on the following references:
-1. http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf - Approximation of an elliptical arc using cubic Bézier curves. 
-2. https://www.w3.org/TR/SVG11/Overview.html - The SVG 1.1 Recommendation. 
-3. https://www.w3.org/TR/SVG2/Overview.html - The SVG 2.0 Candidate Recommendation. In particular Appendix B.2 for handling of elliptical arcs, and 8.2 for converting a viewport and viewBox into an equivalent transform.
+Below is a list of references and what I have used them for. 
+1. [Drawing an elliptical arc using polylines, quadratic or cubic Bézier curves by L. Maisonobe](http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf) -- Approximation of an elliptical arc using cubic Bézier curves. 
+2. [The SVG 1.1 recommendation](https://www.w3.org/TR/SVG11/Overview.html)
+3. [The SVG 2.0 candidate recommendation](https://www.w3.org/TR/SVG2/Overview.html) -- In particular Appendix B.2 for handling of elliptical arcs, and 8.2 for converting a viewport and viewBox into an equivalent transform.
+4. [A Primer on Bézier Curves by "Pomax"](https://pomax.github.io/bezierinfo/) - How to get a quadratic curve using a cubic curve. Also includes information on how to approximate parallel Bézier curves. 
