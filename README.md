@@ -6,7 +6,15 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 **Work in progress.** 
 
 ## Current status:
-* Can import SVG files which contains only nested `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<path>`, `<polyline>`, and `<polygon>`.
+- [x] Handles `<svg>` and nested `<svg>`.
+- [x] Handles basic shapes: `<rect>`, `<circle>`, `<ellipse>`, `<polyline>`, and `<polygon>`. 
+- [x] Handles `<path>`. 
+- [ ] `<g>` 
+- [ ] `<symbol>`
+- [ ] `<defs>`
+- [ ] `<use>`
+- [ ] Color handling
+- [ ] Style and line-width.
 
 ## Improvements/changes:
 * Uses a different (perhaps improved) way of approximating elliptic curves for the rounded corners of `<rect>`. Based on [this](http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf).
@@ -17,12 +25,17 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Changed so that the default is 96 dpi. 
 
 ## Planned work:
-* Add so that it handles also `<path>`. 
-* Add handling of `<defs>`, `<g>` and `<symbol>`.
+* Add handling of `<defs>`, `<g>`, `<symbol>`, and `<use>`.
 * Add handling of style attributes and colors.
 * Long term goal: Convert non-zero stroke-widths to two parallel curves (similar to "Object to path/Stroke to path" in Inkscape.)
 * Add settings for choosing scale image on import. 
 * Add settings for different dpi. 
 * Make it into an actual Blender addon that can be installed. 
-* Add comparisons images between this, the orignal plugin and Firefox renderings.
+* Add comparisons images between this, the orignal addon and Firefox renderings.
 * Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
+
+## References 
+The implementation is based on the following references:
+1. http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf - Approximation of an elliptical arc using cubic Bézier curves. 
+2. https://www.w3.org/TR/SVG11/Overview.html - The SVG 1.1 Recommendation. 
+3. https://www.w3.org/TR/SVG2/Overview.html - The SVG 2.0 Candidate Recommendation. In particular Appendix B.2 for handling of elliptical arcs, and 8.2 for converting a viewport and viewBox into an equivalent transform.
