@@ -21,6 +21,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 - [ ] Add settings for different dpi. 
 - [ ] Possibly: Make geometry clip outside of main SVG viewport. 
 - [ ] Possibly: Add support for clipping path. 
+- [ ] Possibly: Make it possible to import as grease pencil object instead. Or a mixed object (curves for the closed shapes and grease pencil for all strokes). 
 
 
 ## Improvements/changes:
