@@ -5,7 +5,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 
 **Work in progress.** 
 
-## Current status:
+## Current status
 - [x] Handles `<svg>` and nested `<svg>`.
 - [x] Handles basic shapes: `<rect>`, `<circle>`, `<ellipse>`, `<polyline>`, and `<polygon>`. 
 - [x] Handles `<path>`. 
@@ -22,9 +22,10 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 - [ ] Possibly: Make geometry clip outside of main SVG viewport. 
 - [ ] Possibly: Add support for clipping path. 
 - [ ] Possibly: Make it possible to import as grease pencil object instead. Or a mixed object (curves for the closed shapes and grease pencil for all strokes). 
+- [ ] Possibly: Add support for text. 
 
 
-## Improvements/changes:
+## Improvements/changes
 * Uses a different (perhaps improved) way of approximating elliptic curves for the rounded corners of `<rect>`. Based on [this](http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf).
 * Handles `viewBox` attributes more consistently with the SVG specification. 
 * Handles nested SVG elements according to the specification. 
@@ -34,14 +35,6 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Handles smooth quadratic and cubic Bézier curves according the specification. Specifically, a smooth cubic curve (S or s) should only be smooth in case the previous curve is either smooth (S or s) or a cubic Bézier (C or c). 
 * Changed so that the default is 96 dpi, but I am planning to make this into a separate setting.
 
-## Planned 
-* Add handling of style attributes and colors.
-* Long term goal: Convert non-zero stroke-widths to two parallel curves (similar to "Object to path/Stroke to path" in Inkscape.)
-* Add settings for choosing scale image on import. 
-* Add settings for different dpi. 
-* Make it into an actual Blender addon that can be installed. 
-* Add comparisons images between this, the orignal addon and Firefox renderings.
-* Possibly, take into account clipping paths and clipping of objects partly outside the `viewBox`.
 
 ## References 
 Below is a list of references and what I have used them for. 
