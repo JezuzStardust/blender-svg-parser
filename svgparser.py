@@ -1094,15 +1094,14 @@ class SVGGeometryPATH(SVGGeometry):
 
 class SVGPATHParser:
     """
-    Helper for parsing path. 
+    Helper for parsing path. Used only by SVGGeometryPATH. 
     """
     # TODO: Consider using a dict for points. 
     # It is hard to remember which entry is what without it.
     # In this case, we should also consider using this for all classes
     # that create geometry. 
-    # TODO: How do we handle closed curves vs open curves?
     # TODO: Consider using shorter variable names. 
-    # Also, it might be useful to have a separate variable for 
+    # TODO: It might be useful to have a separate variable for 
     # the last point, since it is used so frequently. 
     # In that case there can be a function which adds the point both
     # to the current spline and updates the last point. 
@@ -1332,9 +1331,8 @@ class SVGPATHParser:
     def _path_elliptical_arc_to(self, command):
         """
         Parses the SVG <path> A and a commands.
-
-        A|a rx ry x_axis_rotation large_arc_flag sweep_flag x y
         """
+        # A|a rx ry x_axis_rotation large_arc_flag sweep_flag x y
         # This is complicated for two reasons. 
         # First: The arc is a bit hard to infer from the data (with the flags etc).
         # Second: An ellipse can only be approximated with a Bézier curve. 
@@ -1454,12 +1452,14 @@ class SVGPATHParser:
         """
         Closes the path.
         """
+        # TODO: Use dict for points and make this nicer.
         self._current_spline.append('closed')
 
 
 class SVGPATHDataSupplier:
     """
     Supplies the data from the d attribute, one slot at the time. 
+    Used by SVGPATHParser.
     """
     __slots__ = ('_data',
                  '_index',
@@ -1506,15 +1506,16 @@ class SVGPATHDataSupplier:
 
 class SVGGeometrySYMBOL(SVGGeometrySVG):
     """
-    This functions very much like an SVG element. 
-    Only rendered in USE elements. 
+    Handles the <symbol> element. 
     """
     pass
 
 
 class SVGGeometryDEFS(SVGGeometryContainer):
-    def create_blender_splines(self):
-        super().create_blender_splines()
+    """
+    Handles the <defs> element. 
+    """
+    pass
 
 
 class SVGGeometryUSE(SVGGeometry):
@@ -1538,16 +1539,14 @@ class SVGGeometryUSE(SVGGeometry):
         x = svg_parse_coord(self._viewport[0], current_viewBox[2])
         y = svg_parse_coord(self._viewport[1], current_viewBox[3])
         translation = Matrix.Translation((x,y,0))
-
         self._push_transform(translation)
         self._push_transform(self._transform)
-
         ref = self._node.getAttribute('xlink:href')
         geom = self._context['defs'].get(ref)
         if geom is not None:
             geom_class = geom.__class__
             if geom_class in (SVGGeometrySVG, SVGGeometrySYMBOL):
-                # TODO: Make this doable as a function. 
+                # TODO: Make the vieport replacement a function in SVGGeometrySVG.
                 # The _viewport variable should not be accessed outside
                 # of the class like here. 
                 old_viewport = geom._viewport
@@ -1583,32 +1582,28 @@ class SVGLoader(SVGGeometryContainer):
     """
     Parses an SVG file and creates curve objects in Blender.
     """
-
     # TODO: Fix so that this is done like in the original plugin (e.g. do_colormanage)
     def __init__(self, blender_context, svg_filepath):
         """ 
-        Inits the loader.
-        All geometries will be contained by this instance and the containers it contains. 
+        Initializes the loader.
+        All geometries will be contained by this instance.
         """
-
         svg_name = os.path.basename(svg_filepath)
         scene = blender_context.scene
-        # Create new collection data block in Blender, name
-        # from SVG-file.
+        # Create new collection data block in Blender, name from SVG-file.
         collection = bpy.data.collections.new(name=svg_name)
         # Link this to the current scene. 
         scene.collection.children.link(collection) 
-
         node = xml.dom.minidom.parse(svg_filepath)
-        
         # 96 pixels/inch, 0.3048 meter/feet, 12 inches per feet. 
         scale = 1 / 96 * 0.3048 / 12 
-
         # SVG y-axis points downwards, but Blender's y-axis points upwards. 
+        # So the y-transformation needs a minus sign. 
         m = Matrix()
         m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))
         m = m @ Matrix.Scale(-scale, 4, Vector((0, 1, 0))) 
-        
+        # Note: The context is not the same as the Blender context, 
+        # but a dictionary to store the stack of transforms, etc.
         context = {'current_viewBox': (0, 0, 0, 0), # Same as viewBox_stack[-1].
                    'viewport_stack': [(0, 0, 0, 0)], 
                    'viewBox_stack': [(0, 0, 0, 0)], 
