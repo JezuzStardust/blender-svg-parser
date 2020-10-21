@@ -13,7 +13,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 - [x] `<symbol>`
 - [x] `<defs>`
 - [x] `<use>`
-- [ ] Color handling
+- [x] Color handling
 - [ ] Style and line-width.
 - [ ] Make this into an actual Blender plugin that can be installed. 
 - [ ] Convert non-zero stroke-widths to two parallel paths (similar to Inkscape's "Stroke to path". 
@@ -23,6 +23,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 - [ ] Possibly: Add support for clipping path. 
 - [ ] Possibly: Make it possible to import as grease pencil object instead. Or a mixed object (curves for the closed shapes and grease pencil for all strokes). 
 - [ ] Possibly: Add support for text. 
+- [ ] Add settings for choosing where origin is positioned. Upper/mid/lower left/mid/right.
 
 
 ## Improvements/changes
@@ -34,7 +35,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * The imported image will have the correct size (e.g. a 2cm-by-2cm SVG image will produce a 2cm-by-2cm "image" in Blender)
 * Handles smooth quadratic and cubic Bézier curves according the specification. Specifically, a smooth cubic curve (S or s) should only be smooth in case the previous curve is either smooth (S or s) or a cubic Bézier (C or c). 
 * Changed so that the default is 96 dpi, but I am planning to make this into a separate setting.
-
+* Handles percentages in color specified as rgb.
 
 ## References 
 Below is a list of references and what I have used them for. 

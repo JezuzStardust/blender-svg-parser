@@ -27,6 +27,7 @@ import bpy
 from mathutils import Matrix, Vector
 from math import tan, sin, cos, acos, sqrt, pi
 import os
+from svgparser import svgcolors
 
 
 ### Reading Coordinates ###
@@ -63,6 +64,8 @@ SVG_UNITS = {'': 1.0,
         'em': 1.0,
         'ex': 1.0
         }
+
+### Utility Functions ###
 
 # RE-breakdown
 # (-?\d+(\.\d*)?([eE][-+]?\d+)?) 
@@ -103,7 +106,6 @@ def read_float(text, start_index = 0):
 
     return value_string, end_index
 
-
 def svg_parse_coord(coord, size = 0): # Perhaps the size should always be used.
     """
     Parse a coordinate component from a string. 
@@ -121,19 +123,48 @@ def svg_parse_coord(coord, size = 0): # Perhaps the size should always be used.
     else: 
         return value * SVG_UNITS[unit] 
 
-### End: Reading Coordinate ###
+def srgb_to_linear(color):
+    """
+    Convert sRGB values into linear color space values. 
+
+    Input: color = single float value for one of the R, G, and B channels. 
+    Returns: float
+
+    Blenders colors should be entered in linear color space if the 
+    Display Device setting is either 'sRGB' or 'XYZ' (i.e. if it is 
+    not 'None'). 
+    In this case we need to convert the sRGB values that SVG uses
+    into a linear color space. 
+    Ref: https://entropymine.com/imageworsener/srgbformula/
+    """
+    
+    if color < 0.04045:
+        return 0.0 if color < 0.0 else color / 12.92
+    else:
+        return (color + 0.055) ** 2.4
+
+
+### End: Utility Functions ###
 
 
 ### Constants ###
 # TODO: Put this in the end. 
 
-SVG_EMPTY_STYLE = {'fill': None, # TODO: Initialize to black.
+SVG_EMPTY_STYLE = {'fill': None,
+                   'stroke': None,
+                   'stroke-width': None,
+                   'stroke-linecap': None,
+                   'stroke-linejoin': None,
+                   'stroke-miterlimit': None
+                   }
+
+SVG_DEFAULT_STYLE = {'fill': '#000',
                    'stroke': 'none',
                    'stroke-width': 'none',
                    'stroke-linecap': 'butt',
                    'stroke-linejoin': 'miter',
                    'stroke-miterlimit': 4 
-                  }
+                   }
 
 # fill:                 Fill color. Should be initialized to black!
 # stroke:               Stroke color. 
@@ -151,14 +182,10 @@ def svg_transform_translate(params):
     """
     Returns a translation matrix.
     """
-
     tx = float(params[0])
     ty = float(params[1]) if len(params) > 1 else 0
-
     m = Matrix.Translation(Vector((tx, ty, 0))) 
-    
     return m 
-
 
 def svg_transform_scale(params):
     """
@@ -166,81 +193,60 @@ def svg_transform_scale(params):
     """
     sx = float(params[0])
     sy = float(params[1]) if len(params) > 1 else sx 
-
     m = Matrix.Scale(sx, 4, Vector((1, 0, 0)))
     m = m @ Matrix.Scale(sy, 4, Vector((0, 1, 0)))
-
     return m 
-
 
 def svg_transform_rotate(params):
     """ 
     Returns a rotation matrix.
     """
-
     angle = float(params[0]) * pi / 180
-
     cx = cy = 0
     if len(params) >= 3:
         cx = float(params[1])
         cy = float(params[2])
-
     tm = Matrix.Translation(Vector((cx, cy, 0))) # Translation
     rm = Matrix.Rotation(angle, 4, Vector((0, 0, 1))) # Rotation
-
     # Translate (-cx, -cy), then rotate, then translate (cx, cy). 
     m = tm @ rm @ tm.inverted() 
-    
     return m
-
 
 def svg_transform_skewX(params):
     """
     Returns a skewX matrix. 
     """
-    
     angle = float(params[0]) * pi / 180
-    
     m = Matrix(((1.0,   tan(angle), 0),
                 (0,              1, 0),
                 (0,              0, 1))).to_4x4()
-
     return m
-
 
 def svg_transform_skewY(params):
     """
     Returns a skewY matrix. 
     """
-    
     angle = float(params[0]) * pi / 180
-    
     m = Matrix(((1.0,        0,    0),
                (tan(angle), 1,    0),
                (0,        0,    1))).to_4x4()
-
     return m
-
 
 def svg_transform_matrix(params):
     """
     Returns a matrix transform matrix. 
     """
-
     a = float(params[0])
     b = float(params[1])
     c = float(params[2])
     d = float(params[3])
     e = float(params[4])
     f = float(params[5])
-
     m = Matrix(((a, c, e, 0),
                 (b, d, f, 0),
                 (0, 0, 1, 0),
                 (0, 0, 0, 1)))
-
     return m
-
 
 SVG_TRANSFORMS = {'translate': svg_transform_translate, 
                  'scale': svg_transform_scale,
@@ -249,7 +255,6 @@ SVG_TRANSFORMS = {'translate': svg_transform_translate,
                  'skewY': svg_transform_skewY,
                  'matrix': svg_transform_matrix
                 }
-
 
 ### End: Transformation Functions ###
 
@@ -264,7 +269,6 @@ class SVGGeometry():
     __slots__ = ('_node',
                  '_transform',
                  '_style',
-                 '_material', # This can be baked into context. 
                  '_context',
                  '_viewport',
                  '_viewBox',
@@ -308,13 +312,20 @@ class SVGGeometry():
         first, then parse the style-attribute (e.g. style='fill:blue;stroke:green'
         In SVG-files style="fill:blue;..." takes precedence over e.g. fill="blue".
         """
+        # TODO: This is the style attributes on the given node. 
+        # When creating the geometry, we must make sure the style 
+        # is inherited from the node. Push/pop styles.  
+
+        style = SVG_EMPTY_STYLE.copy()
+
         for attr in SVG_EMPTY_STYLE.keys():
             val = self._node.getAttribute(attr) 
             if val:
-                self._style[attr] = val.strip().lower()
-        style = self._node.getAttribute('style')
-        if style:
-            elems = style.split(';')
+                style[attr] = val.strip().lower()
+
+        style_attr = self._node.getAttribute('style')
+        if style_attr:
+            elems = style_attr.split(';')
             for elem in elems:
                 s = elem.split(':')
                 if len(s) != 2:
@@ -322,10 +333,21 @@ class SVGGeometry():
                 name = s[0].strip().lower()
                 val = s[1].strip()
                 if name in SVG_EMPTY_STYLE.keys():
-                    self._style[name] = val
-        # TODO: Initialize the empty style to have a default fill of black. 
-        # Only if fill="none" or style="...;fill:none;..." is specified 
-        # we should ignore the fill. 
+                    style[name] = val
+        return style
+
+    def _push_style(self, style):
+        """
+        Pushes the 'style' onto the style stack.
+        """
+        # TODO: Probably move this and next to container. 
+        self._context['style_stack'].append(style)
+
+    def _pop_style(self):
+        """
+        Pops the last style from the style stack.
+        """
+        self._context['style_stack'].pop()
 
     def _parse_transform(self):
         """
@@ -402,12 +424,22 @@ class SVGGeometry():
         """
         Create new curve object and add it to the Blender collection. 
         """
+        # TODO: Eliminate one of this and new_blender_curve. 
         curve = bpy.data.curves.new(name, 'CURVE')
         obj = bpy.data.objects.new(name, curve)
         self._context['blender_collection'].objects.link(obj)
         obj.data.dimensions = '2D'
         obj.data.fill_mode = 'BOTH'
-        # obj.data.materials.append(...)
+
+        # TODO: Code repetition in new_blender_curve. 
+        style = self._calculate_style_in_context()
+        if style['fill'] == 'none':
+            obj.data.fill_mode = 'NONE'
+        else: 
+            obj.data.fill_mode = 'BOTH'
+            material = self._get_material_with_color(style['fill'])
+            obj.data.materials.append(material)
+
         return obj.data
 
     def _new_spline_to_blender_curve(self, curve_object_data, is_cyclic):
@@ -429,12 +461,18 @@ class SVGGeometry():
         curve = bpy.data.curves.new(name, 'CURVE')
         obj = bpy.data.objects.new(name, curve)
         self._context['blender_collection'].objects.link(obj)
-        curve_object_data = obj.data 
-        curve_object_data.dimensions = '2D'
-        curve_object_data.fill_mode = 'BOTH'
-        #cu.materials.append(...)
-        curve_object_data.splines.new('BEZIER')
-        spline = curve_object_data.splines[-1]
+        obj.data.dimensions = '2D'
+
+        style = self._calculate_style_in_context()
+        if style['fill'] == 'none':
+            obj.data.fill_mode = 'NONE'
+        else: 
+            obj.data.fill_mode = 'BOTH'
+            material = self._get_material_with_color(style['fill'])
+            obj.data.materials.append(material)
+
+        obj.data.splines.new('BEZIER')
+        spline = obj.data.splines[-1]
         spline.use_cyclic_u = is_cyclic
         return spline
 
@@ -467,6 +505,81 @@ class SVGGeometry():
             else:
                 bezt.handle_right_type = 'VECTOR'
             first_point = False
+
+    def _get_material_with_color(self, color):
+        # Parse the color according to the specification.
+        # Create a new Blender material with this color (using nodes).
+        # Add the material to the material list in context.
+        # color_pattern = r'(#)|()'
+
+        if color in self._context['materials']:
+            return self._context['materials'][color] 
+
+        # TODO: Move this part to utility functions, read_color
+        # Colors can be '#' <hex> <hex> <hex> ( <hex> <hex> <hex> ) ')'
+        # or 'rgb(' wsp* <int> comma <int> comma <int> wsp* ')'
+        # or 'rgb(' wsp* <int> '%' comma <int> '%' comma <int> '%' wsp* ')'
+        # or a color keyword. 
+        # Where comma = wsp* ',' wsp*
+        rgb_pattern = r'rgb\(\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*\)' 
+        rgb_re = re.compile(rgb_pattern)
+        # END move part. 
+
+
+        if color.startswith('#'):
+            # According the SVG 1.1 specification, if only three hexdigits
+            # are given, they should each be repeated twice. 
+            if len(color) == 4:
+                color = color[0] + color[1] * 2 + color[2] * 2 + color[3] * 2
+            diff = (int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16))
+            diffuse_color = [x / 255 for x in diff]
+        elif color in svgcolors.SVG_COLORS:
+            diff = svgcolors.SVG_COLORS[color] 
+            diffuse_color = [x / 255 for x in diff]
+        elif rgb_re.match(color): # Move this to a utility function. 
+            diff = rgb_re.findall(color)[0]
+            if len(c) == 6:
+                diffuse_color = [c[0], c[2], c[4]] 
+            else:
+                diffuse_color = [x / 255 for x in diff]
+        else:
+            return None
+
+        if self._context['do_colormanage']:
+            diffuse_color = [srgb_to_linear(x) for x in diffuse_color]
+
+        # TODO: Rethink the name of this. 
+        # TODO: Should also check if there is not already a material 
+        # in Blender with the same color? 
+        mat = bpy.data.materials.new(name='SVG_' + color)
+        # Set material both in default material and node tree to same color.
+        # Otherwise switching to node tree eliminates the color.
+        mat.diffuse_color = (*diffuse_color, 1.0)
+        mat.use_nodes = True
+        mat.node_tree.nodes['Principled BSDF'].inputs[0].default_value = (*diffuse_color, 1.0)
+        
+        # Add the material to the materials stack.
+        self._context['materials'][color] = mat
+
+        return mat
+
+    def _calculate_style_in_context(self):
+        """ 
+        Starts from default material and successively overwrites 
+        the different attributes for each of the parent. 
+        In the end, if an attribute e.g. fill is still None, 
+        the default value is used. 
+        """
+        style = self._style
+        for sty in self._context['style_stack']:
+            for key in SVG_EMPTY_STYLE.keys():
+                if style[key] == None:
+                    style[key] = sty[key]
+
+        for key in SVG_DEFAULT_STYLE:
+            if style[key] == None:
+                style[key] = SVG_DEFAULT_STYLE[key]
+        return style
 
 
 class SVGGeometryContainer(SVGGeometry):
@@ -510,15 +623,18 @@ class SVGGeometryContainer(SVGGeometry):
         Does not call the creation for SYMBOLS and DEFS, instead
         they will be created via a USE element. 
         """
+        self._push_style(self._style)
         for geom in self._geometries:
             if geom.__class__ not in (SVGGeometrySYMBOL, SVGGeometryDEFS):
                 geom.create_blender_splines()
+        self._pop_style()
 
 
 class SVGGeometrySVG(SVGGeometryContainer):
     """
     Corresponds to the <svg> elements. 
     """
+    # TODO: Should push the style. 
     __slots__ = ()
 
     def parse(self):
@@ -715,7 +831,6 @@ class SVGGeometryRECT(SVGGeometry):
         self._rx = '0'
         self._ry = '0'
 
-
     def parse(self):
         """
         Parse the data from the node and store in the local variables. 
@@ -723,7 +838,6 @@ class SVGGeometryRECT(SVGGeometry):
         Also reads in the style. 
         Should it also read the transformation? 
         """
-        
         super().parse()
 
         self._x = self._node.getAttribute('x') or '0'
@@ -732,8 +846,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._height = self._node.getAttribute('height') or '0'
         self._rx = self._node.getAttribute('rx') or '0'
         self._ry = self._node.getAttribute('ry') or '0'
-
-
+        
     def create_blender_splines(self):
         """ 
         Create Blender geometry.
@@ -1453,6 +1566,7 @@ class SVGPATHParser:
         Corrects the radii in case the ellipse is not large enough to reach
         from one point to the other. In this case, it uniformly scales the 
         ellipse until it exactly touches the two endpoints. 
+        Ref: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
         """
         # 1. Check that they are nonzero. If rx = 0 or ry = 0, draw a straight line. 
         # 2. Take the absolute value of rx, ry. 
@@ -1486,7 +1600,6 @@ class SVGPATHParser:
         Closes the path.
         """
         # TODO: Use dict for points and make this nicer.
-        print('CLOSE')
         self._current_spline.append('closed')
 
 
@@ -1571,12 +1684,16 @@ class SVGGeometryUSE(SVGGeometry):
     def create_blender_splines(self):
         """
         """
+        # TODO: Add some explanations.
         current_viewBox = self._context['current_viewBox']
         x = svg_parse_coord(self._viewport[0], current_viewBox[2])
         y = svg_parse_coord(self._viewport[1], current_viewBox[3])
         translation = Matrix.Translation((x,y,0))
         self._push_transform(translation)
         self._push_transform(self._transform)
+       
+        # TODO: Push style!
+
         ref = self._node.getAttribute('xlink:href')
         geom = self._context['defs'].get(ref)
         if geom is not None:
@@ -1614,6 +1731,7 @@ SVG_GEOMETRY_CLASSES = {'svg': SVGGeometrySVG,
 
 ### End: Classes ###
 
+
 class SVGLoader(SVGGeometryContainer):
     """
     Parses an SVG file and creates curve objects in Blender.
@@ -1647,6 +1765,8 @@ class SVGLoader(SVGGeometryContainer):
                    'current_style': SVG_EMPTY_STYLE, # TODO: Will stack be needed? 
                    'style_stack': [], # TODO: Use this!
                    'defs': {}, # Reference to elements by id or class.
-                   'blender_collection': collection # Used.
+                   'blender_collection': collection, # Used.
+                   'materials': {}, # A dictionary with all materials.
+                   'do_colormanage': True, # TODO: Calculate this instead. 
                    }
         super().__init__(node, context)
