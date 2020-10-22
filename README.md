@@ -36,6 +36,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 * Handles smooth quadratic and cubic Bézier curves according the specification. Specifically, a smooth cubic curve (S or s) should only be smooth in case the previous curve is either smooth (S or s) or a cubic Bézier (C or c). 
 * Changed so that the default is 96 dpi, but I am planning to make this into a separate setting.
 * Handles percentages in color specified as rgb.
+* Handles both the style attribute and a standalone fill attribute. 
 
 ## References 
 Below is a list of references and what I have used them for. 
