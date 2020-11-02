@@ -825,7 +825,6 @@ class SVGGeometryRECT(SVGGeometry):
 
     __slots__ = ('_x', '_y', '_width', '_height', '_rx', '_ry') 
 
-
     def __init__(self, node, context):
         """
         Initialize a new rectangle with default values. 
@@ -938,6 +937,7 @@ class SVGGeometryRECT(SVGGeometry):
 
     def _new_path(is_closed = False):
         return {'points': [], 'is_closed': is_closed} 
+
 
 class SVGGeometryELLIPSE(SVGGeometry):
     """
@@ -1243,7 +1243,9 @@ class SVGGeometryPATH(SVGGeometry):
         for spline in self._splines:
             if spline[-1] == 'closed':
                 is_cyclic = True
-                spline = spline[:-1]
+                spline = spline[:-1] # Remove the string 'closed'. 
+            elif self._style['fill'] != 'none':
+                is_cyclic = True
             else:
                 is_cyclic = False
             blender_spline = self._new_spline_to_blender_curve(curve_object_data, is_cyclic)
@@ -1254,7 +1256,18 @@ class SVGGeometryPATH(SVGGeometry):
 class SVGPATHParser:
     """
     Helper for parsing path. Used only by SVGGeometryPATH. 
+
+    Input: the d attribute from a path element. 
+    Output: a list with points for the spline. 
     """
+    # TODO: Make this nicer. 
+    # TODO: Make all geometry classes use this? 
+    # Perhaps this makes them less explicit...
+    # In that case the data should be a string which is then passed
+    # to the PATHDataSupplier. Perhaps this is not so nice. 
+    # Perhaps geometry classes can prepare the data the same way the 
+    # data supplier does and make the use of that optional? 
+
     # TODO: Consider using a dict for points. 
     # It is hard to remember which entry is what without it.
     # In this case, we should also consider using this for all classes
@@ -1370,7 +1383,7 @@ class SVGPATHParser:
         """
         # According to the specification, a path must start 
         # with a move-to command. 
-        # So there must already be a spline. 
+        # So there must already be a _current_spline. 
         relative = command.islower() 
         command = command.lower()
         # A line-to can be followed by more than one coordinate pair, 
@@ -1520,12 +1533,18 @@ class SVGPATHParser:
                 last_point = self._get_last_point()
                 last_point[4] = 'A' # Update handle. 
             # Ex Ey same as last point. 
-                x = cx + rx * cos(angle) * cos(theta1 + i * dang) - ry * sin(angle) * sin(theta1 + i * dang) 
-                y = cy + rx * sin(angle) * cos(theta1 + i * dang) + ry * cos(angle) * sin(theta1 + i * dang)
-                Epx = - rx * cos(angle) * sin(theta1 + i * dang) - ry * sin(angle) * cos(theta1 + i * dang)
-                Epy = - rx * sin(angle) * sin(theta1 + i * dang) + ry * cos(angle) * cos(theta1 + i * dang)
-                Eppx = - rx * cos(angle) * sin(theta1 + (i - 1) * dang) - ry * sin(angle) * cos(theta1 + (i - 1) * dang)
-                Eppy = - rx * sin(angle) * sin(theta1 + (i - 1) * dang) + ry * cos(angle) * cos(theta1 + (i - 1) * dang)
+                x = cx + rx * cos(angle) * cos(theta1 + i * dang) \
+                    - ry * sin(angle) * sin(theta1 + i * dang) 
+                y = cy + rx * sin(angle) * cos(theta1 + i * dang) \
+                    + ry * cos(angle) * sin(theta1 + i * dang)
+                Epx = - rx * cos(angle) * sin(theta1 + i * dang) \
+                      - ry * sin(angle) * cos(theta1 + i * dang)
+                Epy = - rx * sin(angle) * sin(theta1 + i * dang) \
+                      + ry * cos(angle) * cos(theta1 + i * dang)
+                Eppx = - rx * cos(angle) * sin(theta1 + (i - 1) * dang) \
+                       - ry * sin(angle) * cos(theta1 + (i - 1) * dang)
+                Eppy = - rx * sin(angle) * sin(theta1 + (i - 1) * dang) \
+                       + ry * cos(angle) * cos(theta1 + (i - 1) * dang)
                 last_handle_r_x = last_point[0][0] + alpha * Eppx 
                 last_handle_r_y = last_point[0][1] + alpha * Eppy 
                 last_point[2] = (last_handle_r_x, last_handle_r_y) 
