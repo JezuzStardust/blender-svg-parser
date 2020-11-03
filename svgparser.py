@@ -65,19 +65,49 @@ SVG_UNITS = {'': 1.0,
         'ex': 1.0
         }
 
-### Utility Functions ###
+### Regexp Patterns ###
+# TODO: Consider making these class variables in their specific classes. 
 
-# RE-breakdown
-# (-?\d+(\.\d*)?([eE][-+]?\d+)?) 
+# Match number e.g. -0.232E-23 or .23e1 
+# Breakdown:
 # Optional minus sign
 # One or more digits
 # Optional group: . followed by zero or more digits. 
 # Optional group e or E followed by optional sign followed by one or more digits. 
 # The optional pattern after | is for the cases where the integer part is not present. 
-# TODO: Define all regex outside of functions. No need to recompile every time. 
-match_number_part = r'(-?\d+(\.\d*)?([eE][-+]?\d+)?)|(-?\.\d+([eE][-+]?\d+)?)' 
-re_match_number_part = re.compile(match_number_part)  
-# E.g. for '-1.232e+2cm' the match group(0) will be '-1.232e+2'.
+match_number = r'([+-]?(\d+(\.\d*)?|[+-]?(\.\d+))([eE][+-]?\d+)?)'
+# match_number = r'(-?\d+(\.\d*)?([eE][-+]?\d+)?)|(-?\.\d+([eE][-+]?\d+)?)' 
+re_match_number = re.compile(match_number)  
+
+# Match transform e.g. skewX(23) 
+# First match group is name of transform and 
+# second group is parameters.  
+# Breakdown: 
+# Zero or more spaces \s*
+# Followed by one or more letters ([A-z]+), first capture group
+# Followed by zero or more spaces \s*
+# Followed by left parenthesis \(
+# Followed by one or more (as few as possible) characters, *? means lazy, second capture group
+# Followed by right parenthesis 
+match_transform = r'\s*([A-z]+)\s*\((.*?)\)' 
+re_match_transform = re.compile(match_transform)
+
+# Match color. 
+# Colors can be '#' <hex> <hex> <hex> ( <hex> <hex> <hex> ) ')'
+# or 'rgb(' wsp* <int> comma <int> comma <int> wsp* ')'
+# or 'rgb(' wsp* <int> '%' comma <int> '%' comma <int> '%' wsp* ')'
+# or a color keyword. 
+# Where comma = wsp* ',' wsp*
+match_rgb = r'rgb\(\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*\)' 
+re_match_rgb = re.compile(match_rgb)
+
+# Match a float or a letter. 
+# (?:...) is a non-capturing group. We do not need the individual components. 
+# TODO: Perhaps make use of match_number pattern above. 
+match_float_or_letter = r'(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)|\w'
+re_match_float_or_letter = re.compile(match_float_or_letter) 
+
+### Utility Functions ###
 
 def read_float(text, start_index = 0):
     """ 
@@ -96,7 +126,7 @@ def read_float(text, start_index = 0):
         return '0', start_index
 
     text_part = text[start_index:]
-    match = re_match_number_part.match(text_part) 
+    match = re_match_number.match(text_part) 
 
     if match is None:
         raise Exception('Invalid float value near ' + text[start_index:start_index + 10])
@@ -241,8 +271,8 @@ def svg_transform_matrix(params):
     d = float(params[3])
     e = float(params[4])
     f = float(params[5])
-    m = Matrix(((a, c, e, 0),
-                (b, d, f, 0),
+    m = Matrix(((a, c, 0, e),
+                (b, d, 0, f),
                 (0, 0, 1, 0),
                 (0, 0, 0, 1)))
     return m
@@ -335,16 +365,7 @@ class SVGGeometry():
         transform = self._node.getAttribute('transform')
         m = Matrix() 
         if transform:
-            # RE-breakdown. 
-            # Zero or more spaces \s*
-            # Followed by one or more letters ([A-z]+), first capture group
-            # Followed by zero or more spaces \s*
-            # Followed by left parenthesis \(
-            # Followed by one or more (as few as possible) characters, *? means lazy, second capture group
-            # Followed by right parenthesis 
-            pattern = r'\s*([A-z]+)\s*\((.*?)\)' 
-            matcher = re.compile(pattern)
-            for match in matcher.finditer(transform):
+            for match in re_match_transform.finditer(transform):
                 trans = match.group(1)
                 params = match.group(2)
                 params = params.replace(',', ' ').split()
@@ -480,24 +501,16 @@ class SVGGeometry():
             first_point = False
 
     def _get_material_with_color(self, color):
+        """
+        Parse a color, creates and add a corresponding material 
+        in Blender.
+        """
         # Parse the color according to the specification.
         # Create a new Blender material with this color (using nodes).
         # Add the material to the material list in context.
-        # color_pattern = r'(#)|()'
 
         if color in self._context['materials']:
             return self._context['materials'][color] 
-
-        # TODO: Move this part to utility functions, read_color
-        # Colors can be '#' <hex> <hex> <hex> ( <hex> <hex> <hex> ) ')'
-        # or 'rgb(' wsp* <int> comma <int> comma <int> wsp* ')'
-        # or 'rgb(' wsp* <int> '%' comma <int> '%' comma <int> '%' wsp* ')'
-        # or a color keyword. 
-        # Where comma = wsp* ',' wsp*
-        rgb_pattern = r'rgb\(\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*\)' 
-        rgb_re = re.compile(rgb_pattern)
-        # END move part. 
-
 
         if color.startswith('#'):
             # According the SVG 1.1 specification, if only three hexdigits
@@ -509,8 +522,8 @@ class SVGGeometry():
         elif color in svgcolors.SVG_COLORS:
             diff = svgcolors.SVG_COLORS[color] 
             diffuse_color = [x / 255 for x in diff]
-        elif rgb_re.match(color): # Move this to a utility function. 
-            diff = rgb_re.findall(color)[0]
+        elif re_match_rgb.match(color): # Move this to a utility function. 
+            diff = re_match_rgb.findall(color)[0]
             if len(c) == 6:
                 diffuse_color = [c[0], c[2], c[4]] 
             else:
@@ -697,10 +710,9 @@ class SVGGeometrySVG(SVGGeometryContainer):
             self._context['viewBox_stack'].append(viewBox)
 
     def _parse_preserveAspectRatio(self):
-        # TODO: Move to specific class. 
         # TODO: Handle cases where it starts with 'defer' (and ignore this case).
         # TODO: Handle 'none'. However, see _view_to_transform. Might be OK as is.
-        # Can exist in SVG and SYMBOL. Move to container. 
+        # TODO: Move this outside of the function later. 
         preserveAspectRatio = self._node.getAttribute('preserveAspectRatio')
         # group(0) matches all
         # group(1) matches align (either none or e.g. xMinYMax)
@@ -815,7 +827,13 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
 
 class SVGGeometryG(SVGGeometryContainer):
-    pass
+    """
+    Same as SVGGeometry Container, but can also have transform.
+    """
+    def create_blender_splines(self):
+        self._push_transform(self._transform)
+        super().create_blender_splines()
+        self._pop_transform(self._transform)
 
 
 class SVGGeometryRECT(SVGGeometry):
@@ -920,6 +938,9 @@ class SVGGeometryRECT(SVGGeometry):
                       ((x + w, y + h), None, None),
                       ((x, y + h), None, None)]
 
+        # TODO: Move this to a general purpose function. 
+        # Perhaps name can be defined in SVGGeometry even, since 
+        # all elements can have names. 
         name = self._node.getAttribute('id') or self._node.getAttribute('class') 
         if not name:
             name = 'Rect'
@@ -1114,13 +1135,9 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         """
         Init the <polyline> using default values (points is empty).
         """
-        
         super().__init__(node, context)
-
         self._is_closed = False
-
         self._points = []
-
 
     def parse(self):
         """
@@ -1129,47 +1146,35 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         In this case coordinates cannot be %, so this parsing 
         does not have to be done at time of coordinate creation. 
         """
-
         super().parse()
-
         points = self._node.getAttribute('points')
-
         # TODO: Check if this should be done in a separate function. 
-        match_number = r'([+-]?(\d+(\.\d*)?|(\.\d+))([eE][+-]?\d+)?)'
-
-        number_matcher = re.compile(match_number) 
-
+        # match_number1 = r'([+-]?(\d+(\.\d*)?|[+-]?(\.\d+))([eE][+-]?\d+)?)'
+        # number_matcher1 = re.compile(match_number) 
         previous = None
-        
-        # TODO: If also useful for path: 
-        # append ((previous, float(p[0])), None, None)
-        # In this way, we can reuse _add_points_to_blender. 
-        for p in number_matcher.findall(points):
-            if previous is None: # Skips last number if number of points is odd.
+        for p in re_match_number.findall(points):
+            # This will skip the last one if an odd number of numbers.
+            if previous is None: 
                 previous = float(p[0])
             else: 
                 self._points.append((previous, float(p[0])))
                 previous = None
 
-
     def create_blender_splines(self):
         """
         Creates the splines in Blender. 
         """
-
-
         name = self._node.getAttribute('id') or self._node.getAttribute('class')
-
         if not name:
             if self._is_closed: 
-                name = 'Polygon'
+                name = 'Polygon' # Polygons defaults to closed...
             else:
-                name = 'Polyline'
+                name = 'Polyline' # ...and Polylines are open.
 
+        if self._style['fill'] != 'none': # But if we have a fill, we must close it anyway.
+            self._is_closed = True
         spline = self._new_blender_curve(name, self._is_closed)
-
         self._push_transform(self._transform) 
-        
         # TODO: Rethink this so that it can use the function
         # _add_points_to_blender. 
         # Alternative 1: Remake this code. 
@@ -1177,17 +1182,14 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         # paths, then create a new function for these two. 
         # Alternative 3: Keep this code separate as is. 
         first_point = True
-
         for point in self._points:
             if not first_point:
                 spline.bezier_points.add(1)
-
             bezt = spline.bezier_points[-1]
             bezt.co = self._transform_coord(point)
             bezt.handle_left_type = 'VECTOR'
             bezt.handle_right_type = 'VECTOR'
             first_point = False
-
         self._pop_transform(self._transform)
 
 
@@ -1235,17 +1237,17 @@ class SVGGeometryPATH(SVGGeometry):
         """
         # TODO: Refactor this code. 
         # TODO: Change points to a dictionary or something else.  
+        # TODO: Move this to SVGGeometry.parse instead. 
         name = self._node.getAttribute('id') or self._node.getAttribute('class')
         if not name:
             name = 'Path'
         curve_object_data = self._new_blender_curve_object(name)
+
         self._push_transform(self._transform)
         for spline in self._splines:
             if spline[-1] == 'closed':
                 is_cyclic = True
-                spline = spline[:-1] # Remove the string 'closed'. 
-            elif self._style['fill'] != 'none':
-                is_cyclic = True
+                spline = spline[:-1]
             else:
                 is_cyclic = False
             blender_spline = self._new_spline_to_blender_curve(curve_object_data, is_cyclic)
@@ -1533,18 +1535,12 @@ class SVGPATHParser:
                 last_point = self._get_last_point()
                 last_point[4] = 'A' # Update handle. 
             # Ex Ey same as last point. 
-                x = cx + rx * cos(angle) * cos(theta1 + i * dang) \
-                    - ry * sin(angle) * sin(theta1 + i * dang) 
-                y = cy + rx * sin(angle) * cos(theta1 + i * dang) \
-                    + ry * cos(angle) * sin(theta1 + i * dang)
-                Epx = - rx * cos(angle) * sin(theta1 + i * dang) \
-                      - ry * sin(angle) * cos(theta1 + i * dang)
-                Epy = - rx * sin(angle) * sin(theta1 + i * dang) \
-                      + ry * cos(angle) * cos(theta1 + i * dang)
-                Eppx = - rx * cos(angle) * sin(theta1 + (i - 1) * dang) \
-                       - ry * sin(angle) * cos(theta1 + (i - 1) * dang)
-                Eppy = - rx * sin(angle) * sin(theta1 + (i - 1) * dang) \
-                       + ry * cos(angle) * cos(theta1 + (i - 1) * dang)
+                x = cx + rx * cos(angle) * cos(theta1 + i * dang) - ry * sin(angle) * sin(theta1 + i * dang) 
+                y = cy + rx * sin(angle) * cos(theta1 + i * dang) + ry * cos(angle) * sin(theta1 + i * dang)
+                Epx = - rx * cos(angle) * sin(theta1 + i * dang) - ry * sin(angle) * cos(theta1 + i * dang)
+                Epy = - rx * sin(angle) * sin(theta1 + i * dang) + ry * cos(angle) * cos(theta1 + i * dang)
+                Eppx = - rx * cos(angle) * sin(theta1 + (i - 1) * dang) - ry * sin(angle) * cos(theta1 + (i - 1) * dang)
+                Eppy = - rx * sin(angle) * sin(theta1 + (i - 1) * dang) + ry * cos(angle) * cos(theta1 + (i - 1) * dang)
                 last_handle_r_x = last_point[0][0] + alpha * Eppx 
                 last_handle_r_y = last_point[0][1] + alpha * Eppy 
                 last_point[2] = (last_handle_r_x, last_handle_r_y) 
@@ -1571,7 +1567,7 @@ class SVGPATHParser:
         # In that case it does not have to be passed back by 
         # the function. 
         rx, ry = self._correct_radii(rx, ry, xp, yp)
-        fac = sqrt(rx**2 * ry**2 - rx**2 * yp**2 - ry**2 * xp**2) / sqrt(rx**2 * yp**2 + ry**2 * xp**2)
+        fac = sqrt(abs(rx**2 * ry**2 - rx**2 * yp**2 - ry**2 * xp**2)) / sqrt(rx**2 * yp**2 + ry**2 * xp**2)
         if fA == fS:
             fac *= -1
         cpx = fac * rx * yp / ry
@@ -1647,14 +1643,8 @@ class SVGPATHDataSupplier:
     
     def __init__(self, d):
 
-        # (?:...) is a non-capturing group. 
-        # We do not need the individual components. 
-        # TODO: Move the RE outside of the class.
-        # It is compiled once for every instance. 
-        match_float_or_letter = r'(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)|\w'
-        number_matcher = re.compile(match_float_or_letter) 
         self._data = []
-        for entry in number_matcher.findall(d):
+        for entry in re_match_float_or_letter.findall(d):
             # Each entry is either a number (integer or float) or a letter.
             self._data.append(entry)
         self._index = 0
