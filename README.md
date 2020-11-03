@@ -7,7 +7,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 
 ## How to test it
 1. Make a folder e.g. `~/Blender-Scipts/modules/svgparser` and clone the project there.
-2. In Blender Preferences choose `File Paths` and set the `Scripts` to the path above. 
+2. In Blender Preferences choose `File Paths` and set the `Scripts` to the path above.
 3. Open a Scripting tab and enter e.g.
 ```python
 import bpy
@@ -34,11 +34,13 @@ importlib.reload(svgparser.svgparser)
 - [x] `<defs>`
 - [x] `<use>`
 - [x] Color handling
+- [ ] Extensive testing.
 - [ ] To handle style and strokes: Convert non-zero stroke-widths to two 'parallel' paths (similar to Inkscape's "Stroke to path". 
 - [ ] Make this into an actual Blender plug-in that can be installed. 
 - [ ] Add settings for choosing scale on import.
 - [ ] Add settings for choosing dpi on import.
 - [ ] Add settings for choosing where origin is positioned, e.g. upper/mid/lower left/mid/right.
+- [ ] Make the imported geometry offset in the z-direction according to the drawing order. E.g. offset by .001 B.U. in the z direction everytime a new object is drawn.
 - [ ] Possibly: Make it possible to import as grease pencil object instead. Or a mixed object (curves for the closed shapes and grease pencil for all strokes). 
 - [ ] Possibly: Make geometry clip outside of main SVG viewport. 
 - [ ] Possibly: Add support for clipping paths. 
@@ -46,6 +48,7 @@ importlib.reload(svgparser.svgparser)
 - [ ] Possibly: Add support for gradients. 
 - [ ] Possibly: Add support for transparency.
 - [ ] Possibly: Add support for some filters. 
+- [ ] Possibly: Add support for embedded images (might be hard to extract). But perhaps not: https://gist.github.com/jeromerobert/ff34f504acd7feb0306a 
 
 
 ## Improvements/changes
