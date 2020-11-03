@@ -332,9 +332,9 @@ class SVGGeometry():
                 id_or_class = self._node.getAttribute(attr)
                 if id_or_class:
                     if self._context['defs'].get('#' + id_or_class) is None:
-                    self._context['defs']['#' + id_or_class] = self
-                if not self._name:
-                    self._name = id_or_class # Prefer name from id. 
+                        self._context['defs']['#' + id_or_class] = self
+                    if not self._name:
+                        self._name = id_or_class # Prefer name from id. 
 
     def _parse_style(self):
         """
@@ -384,7 +384,7 @@ class SVGGeometry():
         """
         Parse the x, y, width, and height attributes. 
         """
-        vp_x = x = self._node.getAttribute('x') or '0'
+        vp_x = self._node.getAttribute('x') or '0'
         vp_y = self._node.getAttribute('y') or '0'
         vp_width = self._node.getAttribute('width') or '100%'
         vp_height = self._node.getAttribute('height') or '100%'
@@ -666,7 +666,6 @@ class SVGGeometrySVG(SVGGeometryContainer):
         """
         if not self._context['outer_SVG']:
             self._context['Outer_SVG'] = self
-
         self._viewport = self._parse_viewport()
         self._viewBox = self._parse_viewBox()
         self._preserveAspectRatio = self._parse_preserveAspectRatio()
@@ -1671,7 +1670,13 @@ class SVGGeometryUSE(SVGGeometry):
 
     def parse(self):
         super().parse()
-        self._viewport = self._parse_viewport()
+        # self._viewport = self._parse_viewport() 
+        vp_x = self._node.getAttribute('x') or '0'
+        vp_y = self._node.getAttribute('y') or '0'
+        vp_width = self._node.getAttribute('width') or None
+        vp_height = self._node.getAttribute('height') or None
+
+        self._viewport = (vp_x, vp_y, vp_width, vp_height)
 
     def create_blender_splines(self):
         """
@@ -1702,16 +1707,20 @@ class SVGGeometryUSE(SVGGeometry):
             if geom_class in (SVGGeometrySVG, SVGGeometrySYMBOL):
                 #...then save the current viewport of that class...
                 old_viewport = geom.get_viewport()
-                # ...and replace the width and height with the corresponding values from the use element.
-                geom.set_viewport((old_viewport[0], old_viewport[1], self._viewport[2], self._viewport[3]))
+                # ...and replace the width and height with the corresponding 
+                #values from the use element.
+                # Only replaces the values if they are defined. 
+                width = self._viewport[2] or old_viewport[2]
+                height = self._viewport[3] or old_viewport[3]
+                geom.set_viewport((old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
-                # Replace the old viewport. 
+                # Reset the old viewport. 
                 geom._viewport = old_viewport
             elif geom_class is SVGGeometryDEFS:
                 pass
             else:
                 # If it anything else, then we should simply create that geometry.
-                # In this case, the width and height attributes are ignored completely.
+                # In this case, the width and height attributes are ignored.
                 geom.create_blender_splines()
 
         # Pop styles and transforms. 
