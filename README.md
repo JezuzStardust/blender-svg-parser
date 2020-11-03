@@ -56,6 +56,7 @@ importlib.reload(svgparser.svgparser)
 * Handles smooth quadratic and cubic Bézier curves according the specification. Specifically, a smooth cubic curve (S or s) should only be smooth in case the previous curve is either smooth (S or s) or a cubic Bézier (C or c). 
 * Changed so that the default is 96 dpi, but I am planning to make this into a separate setting.
 * Handles percentages in color specified as rgb.
+* Sets the color both as a default color and also in the node tree. In the standard plugin you loose the color if you switch to using nodes. 
 * Handles both the style attribute and a standalone fill attribute. 
 
 ## References 
