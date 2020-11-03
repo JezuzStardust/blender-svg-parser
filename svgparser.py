@@ -1704,7 +1704,7 @@ class SVGGeometryUSE(SVGGeometry):
         if geom is not None:
             geom_class = geom.__class__
             # If the referenced element is an SVG or a SYMBOL element... 
-            if geom_class in (SVGGeometrySVG, SVGGeometrySYMBOL):
+            if geom_class == SVGGeometrySVG: # SVGGeometrySYMBOL
                 #...then save the current viewport of that class...
                 old_viewport = geom.get_viewport()
                 # ...and replace the width and height with the corresponding 
@@ -1715,7 +1715,14 @@ class SVGGeometryUSE(SVGGeometry):
                 geom.set_viewport((old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
                 # Reset the old viewport. 
-                geom._viewport = old_viewport
+                geom._viewport = old_viewport # TODO: Make a setter for this. 
+            elif geom_class == SVGGeometrySYMBOL:
+                old_viewport = geom.get_viewport()
+                width = self._viewport[2] or '100%'
+                height = self._viewport[3] or '100%'
+                geom.set_viewport((old_viewport[0], old_viewport[1], width, height))
+                geom.create_blender_splines()
+                geom._viewport = old_viewport # TODO: Use setter. 
             elif geom_class is SVGGeometryDEFS:
                 pass
             else:
