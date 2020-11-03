@@ -34,16 +34,18 @@ importlib.reload(svgparser.svgparser)
 - [x] `<defs>`
 - [x] `<use>`
 - [x] Color handling
-- [ ] Style and line-width.
-- [ ] Make this into an actual Blender plugin that can be installed. 
-- [ ] Convert non-zero stroke-widths to two parallel paths (similar to Inkscape's "Stroke to path". 
-- [ ] Add settings for choosing scale in import.
-- [ ] Add settings for different dpi. 
-- [ ] Possibly: Make geometry clip outside of main SVG viewport. 
-- [ ] Possibly: Add support for clipping path. 
+- [ ] To handle style and strokes: Convert non-zero stroke-widths to two 'parallel' paths (similar to Inkscape's "Stroke to path". 
+- [ ] Make this into an actual Blender plug-in that can be installed. 
+- [ ] Add settings for choosing scale on import.
+- [ ] Add settings for choosing dpi on import.
+- [ ] Add settings for choosing where origin is positioned, e.g. upper/mid/lower left/mid/right.
 - [ ] Possibly: Make it possible to import as grease pencil object instead. Or a mixed object (curves for the closed shapes and grease pencil for all strokes). 
+- [ ] Possibly: Make geometry clip outside of main SVG viewport. 
+- [ ] Possibly: Add support for clipping paths. 
 - [ ] Possibly: Add support for text. 
-- [ ] Add settings for choosing where origin is positioned. Upper/mid/lower left/mid/right.
+- [ ] Possibly: Add support for gradients. 
+- [ ] Possibly: Add support for transparency.
+- [ ] Possibly: Add support for some filters. 
 
 
 ## Improvements/changes
