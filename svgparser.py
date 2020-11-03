@@ -302,6 +302,7 @@ class SVGGeometry():
                  '_viewport',
                  '_viewBox',
                  '_preserveAspectRatio',
+                 '_name',
                  )
 
     def __init__(self, node, context):
@@ -313,6 +314,7 @@ class SVGGeometry():
         self._transform = Matrix()
         self._style = SVG_EMPTY_STYLE
         self._context = context
+        self._name = None
 
     def parse(self):
         """
@@ -324,12 +326,15 @@ class SVGGeometry():
         if type(self._node) is xml.dom.minidom.Element:
             self._style = self._parse_style()
             self._transform = self._parse_transform()
-            # self.name = self._get_name_from_node()
             # If the node has an id or class store reference to the instance. 
+            # Also store the name. 
             for attr in ('id', 'class'):
                 id_or_class = self._node.getAttribute(attr)
-                if id_or_class and self._context['defs'].get('#' + id_or_class) is None:
+                if id_or_class:
+                    if self._context['defs'].get('#' + id_or_class) is None:
                     self._context['defs']['#' + id_or_class] = self
+                if not self._name:
+                    self._name = id_or_class # Prefer name from id. 
 
     def _parse_style(self):
         """
@@ -441,6 +446,10 @@ class SVGGeometry():
         Adds a new spline to an existing Blender curve object and returns 
         a reference to the spline.
         """
+        # TODO: Move the style calculations elsewhere. 
+        style = self._calculate_style_in_context()
+        if style['fill'] != 'none':
+            is_cyclic = True
         curve_object_data.splines.new('BEZIER')
         spline = curve_object_data.splines[-1]
         spline.use_cyclic_u = is_cyclic 
@@ -556,7 +565,7 @@ class SVGGeometry():
         the default value is used. 
         """
         style = self._style
-        for sty in self._context['style_stack']:
+        for sty in reversed(self._context['style_stack']):
             for key in SVG_EMPTY_STYLE.keys():
                 if style[key] == None:
                     style[key] = sty[key]
@@ -577,6 +586,14 @@ class SVGGeometry():
         Pops the last style from the style stack.
         """
         self._context['style_stack'].pop()
+
+    def _get_name_from_node(self):
+        """
+        Gets the id or class name from the node if present.
+        """
+        name = None
+        name = self._node.getAttribute('id') or self._node.getAttribute('class')
+        return name
 
 
 class SVGGeometryContainer(SVGGeometry):
@@ -620,6 +637,7 @@ class SVGGeometryContainer(SVGGeometry):
         Does not call the creation for SYMBOLS and DEFS, instead
         they will be created via a USE element. 
         """
+        # TODO: Should transform be pushed here? 
         self._push_style(self._style)
         for geom in self._geometries:
             if geom.__class__ not in (SVGGeometrySYMBOL, SVGGeometryDEFS):
@@ -639,7 +657,6 @@ class SVGGeometrySVG(SVGGeometryContainer):
     # the outer SVGGeometrySVG instance (a value in context that is only occupied
     # if is empty. The outer will be the first one to be parsed. 
 
-
     def parse(self):
         """
         Parse the attributes of the SVG element. 
@@ -649,7 +666,6 @@ class SVGGeometrySVG(SVGGeometryContainer):
         """
         if not self._context['outer_SVG']:
             self._context['Outer_SVG'] = self
-
 
         self._viewport = self._parse_viewport()
         self._viewBox = self._parse_viewBox()
@@ -663,7 +679,6 @@ class SVGGeometrySVG(SVGGeometryContainer):
         viewport_transform = self._view_to_transform()
         self._push_transform(viewport_transform)
         self._push_transform(self._transform)
-
         # If there is no viewBox we inherit it from the current viewport. 
         # Since the viewport is context dependent, this viewBox may change
         # each time the container is used (if referenced multiple times).
@@ -828,7 +843,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
 class SVGGeometryG(SVGGeometryContainer):
     """
-    Same as SVGGeometry Container, but can also have transform.
+    Same as SVGGeometryContainer, but can also have transform.
     """
     def create_blender_splines(self):
         self._push_transform(self._transform)
@@ -847,9 +862,7 @@ class SVGGeometryRECT(SVGGeometry):
         """
         Initialize a new rectangle with default values. 
         """
-
         super().__init__(node, context)
-
         self._x = '0'
         self._y = '0'
         self._width = '0'
@@ -865,7 +878,6 @@ class SVGGeometryRECT(SVGGeometry):
         Should it also read the transformation? 
         """
         super().parse()
-
         self._x = self._node.getAttribute('x') or '0'
         self._y = self._node.getAttribute('y') or '0'
         self._width = self._node.getAttribute('width') or '0'
@@ -877,18 +889,14 @@ class SVGGeometryRECT(SVGGeometry):
         """ 
         Create Blender geometry.
         """
-
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
-
         x = svg_parse_coord(self._x, vB[0])
         y = svg_parse_coord(self._y, vB[1])
         w = svg_parse_coord(self._width, vB[0])
         h = svg_parse_coord(self._height, vB[1]) 
-
         rx = ry = 0
         rad_x = self._rx 
         rad_y = self._ry
-
         # For radii rx and ry, resolve % values against half the width and height,
         # respectively. It is not clear from the specification which width
         # and height are considered. 
@@ -911,17 +919,13 @@ class SVGGeometryRECT(SVGGeometry):
             rx = min(ry, w/2)
         else: 
             rounded = False
-
         # Approximation of elliptic curve for corner.
         # Put the handles semi minor(or major) axis radius times 
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
         factor_x = rx * (sqrt(7) - 1)/3
         factor_y = ry * (sqrt(7) - 1)/3
-
-
-        # TODO: Redo this and utilize the path commands. 
-        # TODO: Update points dicts instead. Easier to follow what is going on.
+        # TODO: Probably better to use a specific class for all Bezier curves. 
 
         if rounded:
             coords = [((x + rx, y), (x + rx - factor_x, y), None),
@@ -941,16 +945,12 @@ class SVGGeometryRECT(SVGGeometry):
         # TODO: Move this to a general purpose function. 
         # Perhaps name can be defined in SVGGeometry even, since 
         # all elements can have names. 
-        name = self._node.getAttribute('id') or self._node.getAttribute('class') 
-        if not name:
-            name = 'Rect'
+        if not self._name:
+            self._name = 'Rect'
 
-        spline = self._new_blender_curve(name, True) 
-
+        spline = self._new_blender_curve(self._name, True) 
         self._push_transform(self._transform)
-
         self._add_points_to_blender(coords, spline)
-
         self._pop_transform(self._transform)
 
     def _new_point(coordinate, handle_left = None, handle_right = None, in_type = None, out_type = None):
@@ -975,54 +975,41 @@ class SVGGeometryELLIPSE(SVGGeometry):
         """ 
         Initialize the ellipse with default values (all zero). 
         """
-
         super().__init__(node, context)
-
         self._is_circle = False
         self._cx = '0'
         self._cy = '0'
         self._rx = '0'
         self._ry = '0'
 
-
     def parse(self):
         """ 
         Parses the data from the <ellipse> element.
         """
-
         super().parse()
-
         self._cx = self._node.getAttribute('cx') or '0'
         self._cy = self._node.getAttribute('cy') or '0'
-
         self._rx = self._node.getAttribute('rx') or '0'
         self._ry = self._node.getAttribute('ry') or '0'
-
         r = self._node.getAttribute('r') or '0'
         
         if r != '0':
             self._is_circle = True
             self._rx = r
 
-
     def create_blender_splines(self):
         """ 
         Create Blender geometry.
         """
-        # TODO: Can this be made in a nicer way?
-
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
-
         cx = svg_parse_coord(self._cx, vB[0])
         cy = svg_parse_coord(self._cy, vB[1])
-
         if self._is_circle:
             weighted_diagonal = sqrt(float(vB[0]) ** 2 + float(vB[1]) ** 2)/sqrt(2)
             rx = ry = svg_parse_coord(self._rx, weighted_diagonal)  
         else:
             rx = svg_parse_coord(self._rx, vB[0])
             ry = svg_parse_coord(self._ry, vB[1]) 
-
         # Approximation of elliptic curve for corner.
         # Put the handles semi minor(or major) axis radius times 
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
@@ -1036,19 +1023,15 @@ class SVGGeometryELLIPSE(SVGGeometry):
                   ((cx + rx, cy), (cx + rx, cy - factor_y), (cx + rx, cy + factor_y)),
                   ((cx, cy + ry), (cx + factor_x, cy + ry), (cx - factor_x, cy + ry))]
 
-        name = self._node.getAttribute('id') or self._node.getAttribute('class')
-        if not name:
+        if not self._name:
             if self._is_circle:
-                name = 'Circle'
+                self._name = 'Circle'
             else:
-                name = 'Ellipse'
+                self._name = 'Ellipse'
 
-        spline = self._new_blender_curve(name, True)
-
+        spline = self._new_blender_curve(self._name, True)
         self._push_transform(self._transform) 
-
         self._add_points_to_blender(coords, spline)
-
         self._pop_transform(self._transform)
 
 
@@ -1068,58 +1051,41 @@ class SVGGeometryLINE(SVGGeometry):
                  '_x2',
                  '_y2')
 
-
     def __init__(self, node, context, is_circle = False):
         """ 
         Initialize the ellipse with default values (all zero). 
         """
-
         super().__init__(node, context)
-
         self._x1 = '0'
         self._y1 = '0'
         self._x2 = '0'
         self._y2 = '0'
 
-
     def parse(self):
         """ 
         Parses the data from the <ellipse> element.
         """
-
         super().parse()
-
         self._x1 = self._node.getAttribute('x1') or '0'
         self._y1 = self._node.getAttribute('y1') or '0'
         self._x2 = self._node.getAttribute('x2') or '0'
         self._y2 = self._node.getAttribute('y2') or '0'
 
-
     def create_blender_splines(self):
         """ 
         Create Blender geometry.
         """
-        # TODO: Can this be made more nice?
-
         vB = self._context['current_viewBox'][2:] # width and height of viewBox.
-
         x1 = svg_parse_coord(self._x1, vB[0])
         y1 = svg_parse_coord(self._y1, vB[1])
         x2 = svg_parse_coord(self._x2, vB[0])
         y2 = svg_parse_coord(self._y2, vB[1])
-
         coords = [((x1, y1), None, None), ((x2, y2), None, None)]
-
-        name = self._node.getAttribute('id') or self._node.getAttribute('class') 
-        if not name:
-            name = 'Line'
-
-        spline = self._new_blender_curve(name, False)
-
+        if not self._name:
+            self._name = 'Line'
+        spline = self._new_blender_curve(self._name, False)
         self._push_transform(self._transform) 
-
         self._add_points_to_blender(coords, spline)
-
         self._pop_transform(self._transform)
 
 
@@ -1142,15 +1108,12 @@ class SVGGeometryPOLYLINE(SVGGeometry):
     def parse(self):
         """
         Parse the node data.
-
         In this case coordinates cannot be %, so this parsing 
         does not have to be done at time of coordinate creation. 
         """
         super().parse()
         points = self._node.getAttribute('points')
         # TODO: Check if this should be done in a separate function. 
-        # match_number1 = r'([+-]?(\d+(\.\d*)?|[+-]?(\.\d+))([eE][+-]?\d+)?)'
-        # number_matcher1 = re.compile(match_number) 
         previous = None
         for p in re_match_number.findall(points):
             # This will skip the last one if an odd number of numbers.
@@ -1164,16 +1127,15 @@ class SVGGeometryPOLYLINE(SVGGeometry):
         """
         Creates the splines in Blender. 
         """
-        name = self._node.getAttribute('id') or self._node.getAttribute('class')
-        if not name:
+        if not self._name:
             if self._is_closed: 
-                name = 'Polygon' # Polygons defaults to closed...
+                self._name = 'Polygon' # Polygons defaults to closed...
             else:
-                name = 'Polyline' # ...and Polylines are open.
+                self._name = 'Polyline' # ...and Polylines are open.
 
         if self._style['fill'] != 'none': # But if we have a fill, we must close it anyway.
             self._is_closed = True
-        spline = self._new_blender_curve(name, self._is_closed)
+        spline = self._new_blender_curve(self._name, self._is_closed)
         self._push_transform(self._transform) 
         # TODO: Rethink this so that it can use the function
         # _add_points_to_blender. 
@@ -1202,9 +1164,7 @@ class SVGGeometryPOLYGON(SVGGeometryPOLYLINE):
         """
         Init the <polyline> using default values (points is empty).
         """
-        
         super().__init__(node, context)
-
         self._is_closed = True
 
 
@@ -1238,11 +1198,11 @@ class SVGGeometryPATH(SVGGeometry):
         # TODO: Refactor this code. 
         # TODO: Change points to a dictionary or something else.  
         # TODO: Move this to SVGGeometry.parse instead. 
-        name = self._node.getAttribute('id') or self._node.getAttribute('class')
-        if not name:
-            name = 'Path'
-        curve_object_data = self._new_blender_curve_object(name)
+        if not self._name:
+            self._name = 'Path'
+        curve_object_data = self._new_blender_curve_object(self._name)
 
+        self._push_style(self._style)
         self._push_transform(self._transform)
         for spline in self._splines:
             if spline[-1] == 'closed':
@@ -1253,6 +1213,7 @@ class SVGGeometryPATH(SVGGeometry):
             blender_spline = self._new_spline_to_blender_curve(curve_object_data, is_cyclic)
             self._add_points_to_blender(spline, blender_spline)
         self._pop_transform(self._transform)
+        self._pop_style()
 
 
 class SVGPATHParser:
