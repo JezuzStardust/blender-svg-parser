@@ -1,0 +1,104 @@
+First, refactor so that for all geometry:
+- Points and curves are defined in the same way. 
+- All geometry uses the path parser. 
+- All geometry uses the same functions for curve creation. 
+
+
+
+
+func: Find and eliminate self intersection. Cubic curve can self intersect only once. 
+
+func: Find an eliminate intersection between pair of curves. 
+
+func: Find bounding box of curve (needed for the above function). 
+
+func: Calculate if safe. Check if point at t=0.5 is 'close to' center of bounding polygon. 
+
+func: Calculate if safe. Check if both handles are on the same side of the curve. If not, split curve on 
+
+
+func: Find normal at t.
+
+func: Find tangent at t.
+
+func: Find point at t. de Castejaus algorithm.
+
+func: Find curvature at t. (Antingen krökningsradie eller inversen). 
+
+func: Find R and T needed to align curve to x-axis (move starting point to origin and rotate 
+	  so end point is on the positive x-axis.
+
+func: Find scale of curve (maximum values of all x and y-values of points and perhaps handles. This gives us some scale to work with which can be helpful in determine which tolerance epsilon we can work with.  
+
+func: Find t at inflection. 
+
+func: Characterize curve (plain, single inflection, double inflection, loop). 
+
+func: Split curve at t.
+
+
+Offset algorithm:
+- Each part of our curve will be a cubic Bezier. So we start by doing this for a single curve. 
+- Characterize the curve. 
+- Simple curves:
+	- Offsetting outwards is not a problem.
+	- Offsetting too far inwards is a problem, since the offset curve might have loops and inflictions. Probably we can simply elminiate loops, but what do we do with inflictions?r
+	From experimenting it seems like the loops and/or inflictions can be eliminated by considering the "next" offset curve and cutting those when they intersect.
+	If this is the end of the curve, the the outer side is always nice (I THINK) so we can simply start from there and draw the end shape (butt, cap, or round) and find the intersection between that and the ugly inner offset. 
+
+- Loop: 
+	- Calculate naive offset on both side. This will be two non-simple curves. 
+	- Start in one end point. At each intersection, toggle between keep and remove. 
+	- So we keep the first part until the inserection, then remove the next part. 
+	- Then keep the part after the next intsersection etc. This should do it. 
+- One infliction:
+	- Split curve at infliction and treat each as above. 
+- Two inflictions:
+	- Split curve on both inflictions and treat as above.  
+
+When we are done with a simple curve, we should move on to how to deal with multple joined Bezier curves. 
+- Probably we should calculate the offset of each part and try to join them somehow. 
+- The question is if we should start with naive offsetting first. Probably!
+- Then, do the algorithm for loops last.
+
+The simple algorithm seems to be: 
+- Treat the offset curves as a singular object. 
+- Split the object at all crossing points. 
+- Start in one end with the toggle: KEEP. 
+- Everytime we come to a new intersection a new curve will start. Toggle the marker KEEP/REMOVE. 
+- Remove all parts that have been marked as remove and stitch together the curves. 
+- At all interesection points we will have four curves. Remove two and stitch the other two. 
+
+Might go bananas if we have a loop and a crossing over each other. But perhaps not? 
+
+What we need: 
+- Function for splitting single Bezier curve into two offset curves. 
+- Function for joining the offsets of adjacent curves. 
+- Handling of infliction points where we jump from one side to another. 
+  - At infliction point we must make sure that we join with the correct offset (not the one 
+	from the other side). 
+
+
+
+curve = {'points': [point, point ...], 'is_closed': True|False} 
+
+point = {'coordinates': (x,y), 'handle_left': (xl, hl), 'handle_right': (xr, hr), 
+'incoming_type': <type>, 'outgoing_type': <type>} 
+
+<type> = 'C' | 'Q' | 'A' | 'L' (more?)
+
+stroke = {'outer': curve, 'inner': curve, 'caps': [curve, curve]} 
+
+stroke can also contain miter/join curves. But alternatively, we can add these during construction directly. 
+
+When we construct the stroke, we will work with subdivided curves which are all simple curve (see classification above). 
+We must, somehow, differ between the outer and inner curves. 
+
+1. The first curve is no problem. The outer scaled curve is added to the outer, 
+and the inner scaled is added to the inner. 
+2. When we come to the next part we have some problems. If the point is an infliction point, we must change the meaning of the two. 
+
+
+
+
+

@@ -1,0 +1,20 @@
+1. 	Write a separate class for Bezier curves.
+	- Should be able to handle curves, e.g. splitting, finding exterma etc. 
+	- Finding self intersections.
+	- Should be able to 'print' itself to Blender. 
+	- In long run also add possibility to make it grease pencil itself. 
+
+2. 	Write a separate class for curves (collection of Bezier curves. 
+	- Think about how to handle the fact that the point of the current and
+	  next curves are the same (unless we jump). 
+	- Should be able to print itself to Blender. 
+	- Should have a way of finding intersections (including single Bezier self
+	  intersections). 
+
+5. For simplicity we can also consider writing a special class for points. 
+   These can be converted to mathutils.Vectors when it is time to add them to 
+   Blender. 
+
+4. 	Use these two classes for all curve creation in the plugin. 
+	E.g. a rounded rectangle should use these. 
+

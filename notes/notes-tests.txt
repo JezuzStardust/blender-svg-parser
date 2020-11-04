@@ -1,0 +1,18 @@
+Tests to run. 
+In all cases these should be compared with Firefox's and/or Chrome's rendering of the SVG.
+
+1. Elliptical arc - Test all aspects of elliptical arcs. E.g. that the radius is correctly scaled and 
+	that the flags are handled correctly. 
+
+2. Colors - Test that all color specification works as intended. 
+			Test for cases where srgb_to_linear is not used. 
+
+3. Test inheritance of transforms, styles, etc. 
+
+4. Paths - Test all path elements in all combinations (e.g. T following M etc). 
+           Test all relative commands. 
+
+5. viewBox - Different tests with different aspect ratios etc. 
+
+6. Transforms - Test all transforms, e.g. skewing a rectangle with rounded corners. 
+		    

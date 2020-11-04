@@ -1,0 +1,52 @@
+These are the transformations:
+
+General:
+viewBox can always be parsed since it only contains pixel values and never %. 
+Viewport can really not be parsed at parse time. 
+Since, in case, it is given in %, it needs to know the surrounding viewBox. 
+TODO: SVGGeometrySVG currently parses the viewport at parse time. Is it enough to simply move it to create_blender_splines? 
+
+
+1. Transform from pixels to Blender units. - Constant and defined already in SVGLoader. 
+2. An outermost SVG with a width and height. - If absent, use 100px x 100px. 
+   It also potentially contains a viewBox. - If absent, inherits from the viewport.
+   The width and height together with the viewBox produce a transform that converts 
+   coordinates within children to Blender units via transform 1.
+3. Nested SVG's should resolve width and height towards current viewBox. 
+   This is handled by _parse_viewport. 
+   Then it should get its own viewBox and parse that. 
+   In case it is not there, it inherits it from its own viewport 
+   (default user coordinates). 
+
+1. Outermost SVG: width, height, viewBox. 
+	All three of these are really optional. 
+	The view and height currently defaulted to 100px. Is this ok? 
+	TODO: What do we do in case w, h are given as e.g. 100%??? 
+	Since width and height can be given as percentages we need to take care.
+	The parsing should be done later when curves are actually created and the current viewBox is defined. 
+
+	Since SVG can be referenced by a use element, we need to be careful 
+	and not parse the viewport too early. (See also the previous sentence).
+	
+	viewBox can be parsed directly. 
+
+3. DEFS elements have only transform and style attributes. 
+   These should of course be parsed and pushed. Should be an SVGGeometryCONTAINER.
+
+4. USE can contain x, y, width, and height attributes.
+
+   In case they reference a SYMBOL the symbol should be turned to an SVG within a g. 
+   the g will contain a translate(x,y) to the right of the transform (in case the use have no transform, there are no problems). 
+	- Parse the transform and push it onto the stack. 
+	- Add a translate(x,y) transform (create it manually with mathutils.Matrix())
+	  then push it also. Save a reference so that we can pop it later. 
+    - We can push the width and height over to the symbol (which might or might not have a viewbox). Then the symbol can use the same method as the SVG to create a transform. 
+
+   In case the referenced object is a e.g. a defs or any regular geometry, we only
+   need to parse the x, and y and translate first. 
+   
+   In case the SYMBOL references a SVG we have some problems. 
+   The width and height of the symbol should overwrite the width and height of the SVG. 
+   Can the SVG somehow inherit the surrounding viewport? 
+   What happens to an x and y value of the referenced SVG if these are nonzero?
+   Will those be used as an extra translation? 

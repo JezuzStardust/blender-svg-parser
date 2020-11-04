@@ -1,0 +1,77 @@
+PATH: 
+After parse it should contain 
+_splines = list of spline objects 
+
+each spline = list of coordinates and handles for each point + note if they are closed or not? 
+
+spline = [((coord),(handle_left),(handle_right)), ((coord),(hl),(hr)),...]
+if (hl) or (hl) = None, use VECTOR. 
+
+How to we handle filling? If there is a z/Z we should close the subpath. 
+
+However, if the object uses fill, then we should also close each subpath!  
+
+When we implement stroke-width, there will be a difference. 
+In the fist case, we should draw strokes along all lines. 
+In the second case, we should not draw fill on the "closing" curve. 
+
+
+M, m (x, y)+: moveto 
+Starts the path or a new subpath. 
+For m, it will be relative to the last coordinate. 
+If d starts with m then it is still an absolute move to. 
+However, m and M can be followed by multiple coordinate pairs. 
+In this case explicit lineto are assumed after the first moveto. 
+In this case m gives the following points as relative. 
+
+L, l: Line to
+Can be followed by multiple coordinate pairs. 
+In that case a line is drawn from the current point to the first pair,
+then from that to the second, etc. 
+
+H, h x+: Horizontal lineto
+H x draws a horizontal line from the current point (x', y') to (x, y').
+h x draws a horizontal line from the current point (x', y') to (x' + x, y')
+Multiple x's can be given, however, this usually does not make sense (but sometimes it can!). 
+
+V, v y+: Vertical lineto
+V y draws a vertical line from the current point (x', y') to (x', y)
+v y draws from (x', y') to (x', y' + y) 
+
+----- FIXAT HIT -----
+
+C, c (x1 y1 x2 y2 x y)+: Cubic Bezier
+Draws a cubic Bezier curve from the current point to (x,y) with control points at (x1, y1) and (x2, y2). 
+If c, use relative coordinates. 
+
+S, s (x2 y2 x y)+: Smooth cubic Bezier
+Draws a smooth cubic Bezier curve from the current point to (x, y). 
+The first control point is the reflection of any previous x2, y2 control point (if this commands follows a C, c, S, or s).
+If it does not follow a previous cubic curve, then the first control point is set to the starting point of the drawing (i.e. the current point). 
+
+Q, q (x1 y1 x y): Quadratic Bezier
+Draws a quadratic Bezier curve from the current point to x, y, with the control at x1, y1. 
+
+T, t (x y)+: Smooth quadratic curve
+Draws a smooth curve from the current point to x, y. 
+The handle is a reflection of the control point of a previous Q, q, T, or t. 
+If this does not follow a previous point, the control is set to the current point. 
+
+Quadratic curve using cubic curve. 
+To make the quadratic curve from P1 to P2 with control C we can use the cubic Bezier with controls at C1 = 2 C / 3 + P1 / 3 and C2 = 2 C /  + P2 / 3. 
+https://math.stackexchange.com/questions/2759306/can-a-cubic-bezier-curve-be-a-quadratic-one-if-two-control-points-are-equal-from
+
+
+A, a (rx ry x-axis-rotation large-arc-flag sweep-flag x y)+: Elliptical arc
+Draws an elliptical arc from the current point to x y. 
+Do like this: Draw an ellipse with rx and ry, and rotate the x-axis with x-axis-rotation degrees. 
+Now move the ellipse so that it touches both the starting point and the end point. 
+If it is too small, scale it up uniformly until there is exactly one way to fit it. 
+Now look at the flags. If the sweep-flag is 1 we should take the solution where we have a positive curve (clockwise) from the starting point to the ending point. 
+If the large-arc-flag is set we should choose the larger of the two possible sweeps. 
+
+For elliptic curve implementation refer to: 
+https://www.w3.org/TR/SVG2/implnote.html#ArcCorrectionOutOfRangeRadii 
+
+- How to find the corresponding center point parametrization. 
+- How to handle out-of-range radii. 
