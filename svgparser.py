@@ -439,6 +439,10 @@ class SVGGeometry():
             material = self._get_material_with_color(style['fill'])
             obj.data.materials.append(material)
 
+        # Test
+        m = Matrix.Translation((0, 0, .000015))
+        self._push_transform(m)
+
         return obj.data
 
     def _new_spline_to_blender_curve(self, curve_object_data, is_cyclic):
