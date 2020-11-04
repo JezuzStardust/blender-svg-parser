@@ -6,7 +6,7 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 **Work in progress.** 
 
 ## How to test it
-1. Make a folder e.g. `~/Blender-Scipts/modules/svgparser` and clone the project there.
+1. Make a folder e.g. `~/Blender-Scipts/modules/svgparser` and clone the project there. In case you are using Windows you might have to change the format of the path, e.g. `C:\...\...\svgparser`. 
 2. In Blender Preferences choose `File Paths` and set the `Scripts` to the path above.
 3. Open a Scripting tab and enter e.g.
 ```python
@@ -26,7 +26,7 @@ importlib.reload(svgparser.svgparser)
 
 ## Comparisons
 ![tiger.svg comparison](/figures/tiger-render-eevee.png)
-Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. 
+Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. The figure above is rendered with Eevee. 
 Original SVG-file: [tiger.svg](https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg)
 
 ## Current status
