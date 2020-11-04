@@ -24,7 +24,7 @@ import importlib
 importlib.reload(svgparser.svgparser)
 ```
 ## Comparisons
-![tiger.svg comparison](https://github.com/JezuzStardust/blender-svg-parser/blob/main/Comparisons/Tiger%20SVG%20comparison.png)
+![tiger.svg comparison](https://github.com/JezuzStardust/blender-svg-parser/blob/gh-pages/figures/tiger-render-eevee.png)
 Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. 
 Original SVG-file: [tiger.svg](https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg)
 
