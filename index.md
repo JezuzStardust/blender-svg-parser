@@ -23,6 +23,7 @@ the latest version. In that case, add
 import importlib
 importlib.reload(svgparser.svgparser)
 ```
+
 ## Comparisons
 ![tiger.svg comparison](/figures/tiger-render-eevee.png)
 Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. 
