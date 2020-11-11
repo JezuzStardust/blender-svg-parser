@@ -1,20 +1,53 @@
 1. 	Write a separate class for Bezier curves.
-	- Should be able to handle curves, e.g. splitting, finding exterma etc. 
-	- Finding self intersections.
-	- Should be able to 'print' itself to Blender. 
+	- Finding self intersections?
 	- In long run also add possibility to make it grease pencil itself. 
 
-2. 	Write a separate class for curves (collection of Bezier curves. 
-	- Think about how to handle the fact that the point of the current and
-	  next curves are the same (unless we jump). 
-	- Should be able to print itself to Blender. 
-	- Should have a way of finding intersections (including single Bezier self
-	  intersections). 
+2. 	Write a separate class for curves (collection of Bezier curves).
+	- End and starting points of subsequent Bezier:s should coincide (or preferably be the same mathutils.Vector instance). 
+	- Find intersections.
 
-5. For simplicity we can also consider writing a special class for points. 
-   These can be converted to mathutils.Vectors when it is time to add them to 
-   Blender. 
-
-4. 	Use these two classes for all curve creation in the plugin. 
+3. 	Use these two classes for all curve creation in the plugin. 
 	E.g. a rounded rectangle should use these. 
 
+splines consists of many Bezier curves. 
+
+splines = [B1, B2, B3, ...] 
+
+[(i, ti, j, t), ...]  or (i, j, t_i, t_j)? 
+
+
+{'1': [(1,t11), (3,t13), (4,t13)], '3': [(1,t31)], }
+
+Probably does not matter much. 
+
+
+
+
+Bezier
+
+def _get_reduced(self) # Fixed. 
+
+	return self.reduced
+
+
+def intersections(self, bezier): 
+	c1 = self.reduced
+	c2 bezier.reduced
+	
+	do recursive finding. 
+	return [(t1, t2), ...] 
+
+def self_intersections(self):
+	cc = self.reduced
+	d = itertools.combinations(cc, 2)
+	... 
+	
+
+Curve
+
+def intersections(self):
+	make list of each pair
+	check which pairs overlap
+	call bezier1.intersections(bezier2) and store in intersection list
+	also store index for each curve. 
+	

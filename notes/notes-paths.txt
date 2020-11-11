@@ -1,11 +1,15 @@
-PATH: 
-After parse it should contain 
-_splines = list of spline objects 
+Bezier
+Four points: start point, right handle of first point, left handle of second point, second point
 
-each spline = list of coordinates and handles for each point + note if they are closed or not? 
+Curve: 
+_splines = list of Bezier curves which are connected. 
 
-spline = [((coord),(handle_left),(handle_right)), ((coord),(hl),(hr)),...]
-if (hl) or (hl) = None, use VECTOR. 
+Does it help if the splines-list is a linked list? Must it know which is before? 
+
+
+
+
+
 
 How to we handle filling? If there is a z/Z we should close the subpath. 
 
@@ -13,7 +17,6 @@ However, if the object uses fill, then we should also close each subpath!
 
 When we implement stroke-width, there will be a difference. 
 In the fist case, we should draw strokes along all lines. 
-In the second case, we should not draw fill on the "closing" curve. 
 
 
 M, m (x, y)+: moveto 
