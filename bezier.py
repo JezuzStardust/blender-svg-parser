@@ -2,13 +2,31 @@
 Classes and utility functions for Bezier curves.  
 """
 from mathutils import Vector, Matrix
-# import numpy as np
 import math
 import bpy
+import itertools
 
-### General Utils ###
+### Utils ###
+
+def are_overlapping(bbbox1, bbbox2):
+    """
+    Check if two bounding boxes are overlapping.
+    Thinks about redoing this.
+    """
+    # 0      1      2      3
+    # min_x, max_x, min_y, max_y 
+    if bbbox1[0] >= bbbox2[1] or bbbox2[0] >= bbbox1[1] or bbbox1[2] >= bbbox2[3] or bbbox2[2] >= bbbox1[3]:
+        return False
+    else:
+        return True
 
 def quadratic_solve(a,b,c): 
+    if a == 0:
+        if b == 0:
+            return (0,)
+        else: 
+            return (-c / b, )
+    
     d = - b / (2 * a)
     e = b**2 - 4 * a * c
     if e == 0:
@@ -22,12 +40,62 @@ def quadratic_solve(a,b,c):
         # case from the caller instead.
         return () 
 
+def curve_intersections(c1, c2, treshold):
+    """
+    Recursive method used for finding the intersection between 
+    two Bezier curves, c1, and c2. 
+    """
+    # TODO: Make this a static method of Bezier. Or maybe not. It is till 
+    # limited to this module. 
+    # TODO: Rename with something like find_intersections_recursively(..)
+
+    # c1b = c1.bounding_box
+    # c2b = c2.bounding_box 
+    # if c1b[1] - c1b[0] + c1b[3] - c1b[2] < treshold and c2b[1] - c2b[0] + c2b[3] - c2b[2] < treshold: 
+    if c1._t2 - c1._t1 < treshold and c2._t2 - c2._t1 < treshold:
+        return [((c1._t1 + c1._t2)/2 , (c2._t1 + c2._t2)/2)]
+
+    cc1 = c1.split(0.5)
+    cc2 = c2.split(0.5)
+    # for i in cc1:
+    #     i.name = c1.name[0] + ':' + str(i._t1) + '-' + str(i._t2)
+    # for i in cc2:
+    #     i.name = c2.name[0] + ':' + str(i._t1) + '-' + str(i._t2)
+    pairs = itertools.product(cc1, cc2)
+    pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)] 
+
+    results = [] 
+    if len(pairs) == 0:
+        return results
+    
+    for pair in pairs:
+        results += curve_intersections(pair[0], pair[1], treshold)
+    return results
+
+# Temporary during development. Probably not useful later. 
+
+def bezier_from_Blender(name):
+    cu = bpy.data.collections['Collection'].objects[name]
+    p0 = cu.data.splines[0].bezier_points[0].co
+    p1 = cu.data.splines[0].bezier_points[0].handle_right
+    p2 = cu.data.splines[0].bezier_points[1].handle_left
+    p3 = cu.data.splines[0].bezier_points[1].co
+    return Bezier(p0, p1, p2, p3)
+
+
+
+### End: Utils ###
+
 class Bezier():
     """
     Bezier curve of 3rd order. 
     p0, p1, p2, p3 are mathutils.Vector
     """
-    # TODO: Make it possible to use also numpy.array if this is an improvement.
+    # TODO: Consider using slots. 
+    # TODO: Consider using property for both lazy evaluation of attributes
+    #       and automatic updating of e.g. bounding_box when needed. 
+    #       Probably more Pythonic than using __getattr__ the way I have. 
+
     def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, name = None):
         """ 
         Initializes the curve and sets its points and degree. 
@@ -40,7 +108,7 @@ class Bezier():
         if name:
             self.name = name
         else:
-            self.name = 'BezierCurve'
+            self.name = 'Bezier'
         # If this is a split of another curve, then _t1 and _t2 gives the 
         # parameter range of the original curve. 
         # Needed for keeping track of intersections. 
@@ -61,7 +129,9 @@ class Bezier():
     def __getattr__(self, attribute):
         """
         The first time an attribute e.g. the derivative, is called,
-        the function is created. 
+        the attribute is calculated, i.e. lazy calculations.
+        To prevent from doing a lot of calculations at init,
+        and to prevent having to redo calculations multiple times. 
         """
         # TODO: The expectation is that we do not need all these for 
         # most curves. 
@@ -85,12 +155,28 @@ class Bezier():
         elif attribute == 'curvature':
             self.curvature = self._get_curvature()
             return self.curvature
+        elif attribute == 'aligned':
+            self.aligned = self._get_aligned()
+            return self.aligned
+        elif attribute == 'bounding_box':
+            self.bounding_box = self._get_bounding_box()
+            return self.bounding_box
+        elif attribute == 'extrema':
+            self.extrema = self._get_extrema()
+            return self.extrema
+        elif attribute == 'inflection_points':
+            self.inflection_points = self._get_inflection_points()
+            return self.inflection_points
+        elif attribute == 'reduced':
+            self.reduced = self._get_reduced()
+            return self.reduced
+        else:
+            raise AttributeError(f"{self} has no attribute called {attribute}.")
 
     def _get_function(self):
         """
         Create the function the first time the Bezier curve is __call__:ed. 
         """
-        print('function created')
         p = self.points
         def function(t): 
             return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3
@@ -150,14 +236,40 @@ class Bezier():
 
         return curvature 
 
-    def is_simple(self):
+    def _get_aligned(self):
         """
-        For 3D curves, this returns True if both handles 
-        are on the same side of the curve. 
+        Returns the points of the corresponding aligned curve. 
+        Aligned means: start point in origin, end point on x-axis. 
         """
-        pass
+        m = Matrix.Translation(-self.points[0])
+        end = m @ self.points[3]
+        if end[0] != 0:
+            angle = -math.atan(end[1] / end[0])
+        else:
+            angle = 0
+        m = Matrix.Rotation(angle, 4, 'Z') @ m
 
-    def extrema(self):
+        aligned_points = []
+        for p in self.points:
+            aligned_points.append(m @ p)
+        return aligned_points
+
+    def _get_bounding_box(self):
+        """
+        Calculate the bounding box of the curve. 
+        """
+        # TODO: Make it possible to calculate the tight bounding box if this
+        # is deemed useful. 
+        # TODO: Consider returning the box in some other format. 
+        # TODO: Consider using a Rectangle class for this. 
+        extrema = self.extrema
+        min_x = self.__call__(extrema[0])[0]
+        max_x = self.__call__(extrema[1])[0]
+        min_y = self.__call__(extrema[2])[1]
+        max_y = self.__call__(extrema[3])[1]
+        return (min_x, max_x, min_y, max_y)
+
+    def _get_extrema(self):
         """
         Returns the parameter values for the minimum and maximum of the curve
         in the x and y coordinate. 
@@ -168,9 +280,10 @@ class Bezier():
         p2 = self.points[2]
         p3 = self.points[3]
 
-        a = 3 * (-p0 + 3 * p1 - 3 * p2 + p3) 
+        a = (3 * (-p0 + 3 * p1 - 3 * p2 + p3))
         b = 6 * (p0 - 2*p1 + p2)
         c = 3*(p1 - p0) 
+        # print('a', a[0], a[1], self.points)
         
         endpoints = (0.0, 1.0) # Must also check if extrema occurs on endpoint.
         tx_roots = endpoints + quadratic_solve(a[0], b[0], c[0]) 
@@ -187,15 +300,70 @@ class Bezier():
         ty_max = ty_roots[y_values.index(max(y_values))]
         ty_min = ty_roots[y_values.index(min(y_values))]
 
-        return (tx_min, tx_max, ty_min, ty_max)
+        return [tx_min, tx_max, ty_min, ty_max]
 
-    def get_inflection_points(self):
+    def _get_inflection_points(self):
         """
         Returns a list of parameter values where inflection points occurs. 
-        ((x1, y1, t1), (x2, y2, t2)). 
         The length of the list can be zero, one, or two. 
         """
+        # TODO: Make this a lazily calculated data attribute. 
+        # Align the curve to the x-axis to simplify equations. 
+        # https://pomax.github.io/bezierinfo/#inflections
+        p0 = self.aligned[0]
+        p1 = self.aligned[1]
+        p2 = self.aligned[2]
+        p3 = self.aligned[3]
+        a = p2[0] * p1[1]
+        b = p3[0] * p1[1]
+        c = p1[0] * p2[1]
+        d = p3[0] * p2[1] 
+        e = - 3 * a + 2 * b + 3 * c - d 
+        f = 3 * a - b - 3 * c
+        g = c - a 
+        inflection_points = quadratic_solve(e, f, g)
+        inflection_points = [p for p in inflection_points if p >= 0 and p <= 1]
+        return inflection_points
+
+    def _get_reduced(self):
+        """
+        Splits the curve at each extrema and each inflection point
+        and returns a list of these. 
+        """
+        extrema = self.extrema
+        inflections = self.inflection_points
+        total = list(set(extrema + inflections)) # Remove any doubles. 
+        total.sort() 
+        if 0 not in total:
+            total.insert(0, 0.0)
+        if 1 not in total:
+            total.append(1)
+
+        curves = []
+        print('total', total)
+        for i in range(len(total)-1):
+            curves.append(self.split(total[i], total[i+1]))
+
+        return curves
+
+    def is_simple(self):
+        """
+        For 3D curves, this returns True if both handles 
+        are on the same side of the curve. 
+        """
         pass
+
+    def start_point(self):
+        """
+        Returns the starting point. 
+        """
+        return self.points[0]
+
+    def end_point(self):
+        """
+        Returns the end point.
+        """
+        return self.points[3]
 
     def split(self, t1, t2 = None):
         """
@@ -240,19 +408,6 @@ class Bezier():
                 t2p = self.map_whole_to_split(t2, t1, 1) 
                 return result[1].split(t2p)[0] 
 
-    # def map(self, v, ds, de, ts, te):
-    #     """
-    #     Maps the parameter of a point on a split curve 
-    #     to the whole curve or vice versa.
-    #     If ds = 0, de = 1, we map from the split to the parent.  
-    #     In this case, ts is the starting parameter of the parent (ts = 0 
-    #     if the parent was the original curve, i.e. never splitted), 
-    #     and te is the end parameter value. 
-    #     If ts = 0, and te = 1, we map a parameter from the parent to the split.
-    #     """
-    #     # TODO: Split this up into two separate functions. 
-    #     return ts + (te - ts) * (v - ds) / (de - ds)
-
     def map_whole_to_split(self, t, ds, de):
         """
         Returns the parameter in the splitted curve 
@@ -273,20 +428,6 @@ class Bezier():
         corresponding to the parameter t in the splitted curve. 
         """
         return self._t1 + t * (self._t2 - self._t1) 
-
-    def bounding_box(self):
-        """
-        Calculate the bounding box of the curve. 
-        """
-        # TODO: Make it possible to calculate the tight bounding box if this
-        # is deemed useful. 
-        extrema = self.extrema()
-        min_x = self.__call__(extrema[0])[0]
-        max_x = self.__call__(extrema[1])[0]
-        min_y = self.__call__(extrema[2])[1]
-        max_y = self.__call__(extrema[3])[1]
-        return (min_x, max_x, min_y, max_y)
-
 
     def tight_bounding_box(self):
         pass
@@ -309,11 +450,205 @@ class Bezier():
         spline.bezier_points[-1].co = self.points[3]
         spline.bezier_points[-1].handle_left = self.points[2]
 
+        def reduce(self):
+            """
+            Splits the curve up in simple parts
+            """
+            results = [] 
+            extrema = self.extrema() 
+
+    def offset_curve(self, epsilon):
+        """
+        Returns an inner and outer curve offset by epsilon from self.
+        """
+        pass
+
+
+    def intersection(self, bezier):
+        """
+        Returns a list of the parameters [(t, t'), ...] for the intersections 
+        between self and bezier.
+        """
+        treshold = 0.00001
+
+        c1 = self.reduced
+        c2 = bezier.reduced
+        pairs = itertools.product(c1, c2)
         
+        pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)]
+
+        intersections = []
+        for pair in pairs:
+            result = curve_intersections(*pair, treshold)
+            if len(result) > 0:
+                intersections += result
+        return intersections
+    
+    def self_intersections(self):
+        """
+        Returns a list of self intersections of the curve. 
+        """
+        treshold = 0.00001
+
+        c = self.reduced
+        pairs = itertools.combinations(c, 2)
+
+        pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)]
+
+        print(pairs)
+        intersections = []
+        for pair in pairs:
+            result = curve_intersections(*pair, treshold)
+            if len(result) > 0:
+                intersections += result
+        return intersections
 
 
 class Curve(): 
+    """
+    A list of Bezier curves corresponds to a single curve object. 
+    """
+
+    def __init__(self, *beziers, is_closed = False, name = 'Curves'):
+        self.beziers = beziers
+        self.is_closed = is_closed
+        self.name = name
+        # Append curve-name to each Bezier. (Might reconsider this later). 
+        for bezier in self.beziers:
+            bezier.name = self.name + ':' + bezier.name 
+            bezier._t1 = 0
+            bezier._t2 = 1
+        
+
+    def add_curve(self, curve):
+        """
+        Add curve to the current (this) curve. 
+        End point of this and start point of curve must coincide. 
+        """
+        if self.bezier[-1].end_point() == curve.start_point():
+            for bezier in curve.beziers:
+                self.bezier.append(bezier) 
+        else:
+            raise Exception('Start and end points of curves must be equal.')
+    
+    def add_bezier(self, bezier):
+        """
+        Add a single Bezier curve in the end of the curve. 
+        End and start points must match. 
+        """
+        if self.end_point() == bezier.start_point():
+            self.beziers.append(bezier)
+        else:
+            raise Exception('Start and end points of curves must be equal.')
+    
+    def toggle_closed(self):
+        """
+        Toggles the curve closed.
+        """
+        pass
+
+    def is_closed(self):
+        """
+        Returns True/False if curve is closed/open.
+        """
+        pass
+    
+    def add_to_Blender(self):
+        """
+        Adds the curve to Blender as splines. 
+        """
+        # TODO: How should we choose which collection to add the curve to? 
+        cu = bpy.data.curves.new(self.name, 'CURVE')
+        ob = bpy.data.objects.new(self.name, cu)
+        bpy.data.collections['Collection'].objects.link(ob)
+        cu.splines.new('BEZIER')
+        spline = cu.splines[-1]
+        
+        # spline.bezier_points[-1].co = self.beziers[0].points[0]
+        # spline.bezier_points[-1].handle_right = self.beziers[0].points[1]
+        
+        spline.bezier_points[-1].co = self.beziers[0].points[0]
+
+        for bez in self.beziers:
+            spline.bezier_points[-1].handle_right = bez.points[1]
+            spline.bezier_points.add(1)
+            spline.bezier_points[-1].co = bez.points[3]
+            spline.bezier_points[-1].handle_left = bez.points[2]
+
+    def intersections(self):
+        """
+        Find the intersections within the curve. 
+        Start by splitting each curve at each extrema and also at each 
+        infliction point. 
+        """
+        # TODO: Rewrite this to utilize the intersection methods in Bezier. 
+
+        treshold = .00001
+        # Find self intersection for each curve. 
+        # Find curve-curve intersection. 
+        # intersections = {'selfint': [(index, t), ...], 'ccint': [(i1, i2, t1, t2),...] }
+
+        pairs = itertools.combinations(self.beziers, 2)
+        pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)]
+        intersections = [] 
+        for pair in pairs:
+            results = curve_intersections(*pair, treshold)
+            if len(results) > 0: 
+                intersections += results
+        return results
+
+    def start_point(self):
+        return self.beziers[0].start_point() 
+
+    def end_point(self):
+        return self.beziers[-1].end_point()
+
+"""
+Idea: Create geometry classes here. 
+These can be initiated using the same parameters as SVGGeometry-classes. 
+These classes can be responsible for creating the geometry when adding to Blender.
+SVGArguments - The arguments from the corresponding SVG-class. These should be parsed and ready to use. E.g. any percentages should be resolved. 
+SVGTransform - A matrix corresponding to the full viewport transform. Calculated in the SVG classes and passed in here. 
+BlenderContext - The Blender context. 
+BlenderCollection - The collection which all geometry should be added to. 
+"""
+
+def Geometry():
+    def __init__(self, is_closed = True):
+        self.is_closed = is_closed
+    
+    def add_to_Blender(self):
+        pass
+
+    def transform(self, transformation):
+        self.points = [transformation @ point for point in self.points]
+
+
+def Rectangle(Geometry):
     pass
+
+
+def Ellipse(Geometry):
+    pass
+
+
+def Circle(Geometry):
+    pass
+
+
+def Line(Geometry):
+    pass
+
+
+def PolyLine(Geometry):
+    pass
+
+
+def Path(Geometry):
+    pass
+
+
+############# 
 
 
 def find_parameter_at_position(point1, point2, x, y):  
@@ -402,3 +737,51 @@ def classify_curve(p1, p2, p3, p4):
     # TODO: Handle the case where x3 - x2 * y32 = 0? Is this just the case 3 above?
 
     return result
+
+
+
+# Rewrite the lazy properties. 
+"""
+self.cities = lazy_property(cities) 
+lazy_property(cities) -
+    attr_name = '_lazy_cities' 
+
+    def _lazy_property(cities) - 
+        if not hasattr(self, '_lazy_cities'):
+            setattr(self, '_lazy_cities', cities(self)) 
+        return getattr(self, attr_name) 
+    return _lazy_property 
+
+        
+"""
+
+def lazy_property(fn):
+    attr_name = '_lazy_' + fn.__name__
+
+    @property
+    def _lazy_property(self):
+        if not hasattr(self, attr_name):
+            setattr(self, attr_name, fn(self))
+        return getattr(self, attr_name)
+    return _lazy_property
+
+# A smart construction for making a property lazy. 
+
+
+class Country:
+    def __init__(self, name, capital):
+        self.name = name
+        self.capital = capital
+
+    @lazy_property
+    def cities(self):
+        # expensive operation to get all the city names (API call)
+        print("cities property is called")
+        return ["city1", "city2"]
+
+# china = Country("china", "beijing")
+# print(china.capital)
+## beijing
+# print(china.cities)
+## cities property is called
+## ['city1', 'city2']
