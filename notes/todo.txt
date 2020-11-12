@@ -1,0 +1,7 @@
+1. Refactor curve creation code in svgparser.py. Perhaps utilize Bezier and Curve classes. 
+2. Move utility functions of all classes to separate module. 
+3. Performance and bug testing. 
+4. Consider using slots in Bezier and Curve classes. 
+5. Add so that Bezier can accept optional transformation matrix when inited or at later stage (probably when using add_to_Blender(). 
+6. Refactor lazy evaluation of Bezier and Curve properties. Either use @property or descriptors (probably the earlier one). 
+7. 
