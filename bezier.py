@@ -3,10 +3,11 @@ Classes and utility functions for Bezier curves.
 """
 from mathutils import Vector, Matrix
 import math
-import bpy
+#import bpy
 import itertools
+import operator
 
-### Utils ###
+### Utility Functions ###
 
 def are_overlapping(bbbox1, bbbox2):
     """
@@ -40,7 +41,7 @@ def quadratic_solve(a,b,c):
         # case from the caller instead.
         return () 
 
-def curve_intersections(c1, c2, treshold):
+def curve_intersections(c1, c2, threshold):
     """
     Recursive method used for finding the intersection between 
     two Bezier curves, c1, and c2. 
@@ -49,10 +50,7 @@ def curve_intersections(c1, c2, treshold):
     # limited to this module. 
     # TODO: Rename with something like find_intersections_recursively(..)
 
-    # c1b = c1.bounding_box
-    # c2b = c2.bounding_box 
-    # if c1b[1] - c1b[0] + c1b[3] - c1b[2] < treshold and c2b[1] - c2b[0] + c2b[3] - c2b[2] < treshold: 
-    if c1._t2 - c1._t1 < treshold and c2._t2 - c2._t1 < treshold:
+    if c1._t2 - c1._t1 < threshold and c2._t2 - c2._t1 < threshold:
         return [((c1._t1 + c1._t2)/2 , (c2._t1 + c2._t2)/2)]
 
     cc1 = c1.split(0.5)
@@ -69,8 +67,25 @@ def curve_intersections(c1, c2, treshold):
         return results
     
     for pair in pairs:
-        results += curve_intersections(pair[0], pair[1], treshold)
+        results += curve_intersections(pair[0], pair[1], threshold)
+    results = filter_duplicates(results, threshold)
     return results
+
+def filter_duplicates(tuples, threshold = 0.01):
+    """
+    Filter out tuples that differ less than threshold. 
+    """
+    result = []
+    for tup in tuples:
+        if not any(is_close(tup, other, threshold) for other in result):
+            result.append(tup)
+    return result
+
+def is_close(a, b, threshold = 0.01):
+    comps = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
+    return comps
+
+
 
 # Temporary during development. Probably not useful later. 
 
@@ -82,9 +97,12 @@ def bezier_from_Blender(name):
     p3 = cu.data.splines[0].bezier_points[1].co
     return Bezier(p0, p1, p2, p3)
 
-
+### End: Utility Functions ###
 
 ### End: Utils ###
+
+# TODO: Use slots if that optimizes performance. 
+# TODO: Use @property for lazy evaluation of properties.
 
 class Bezier():
     """
@@ -340,7 +358,6 @@ class Bezier():
             total.append(1)
 
         curves = []
-        print('total', total)
         for i in range(len(total)-1):
             curves.append(self.split(total[i], total[i+1]))
 
@@ -463,14 +480,11 @@ class Bezier():
         """
         pass
 
-
-    def intersection(self, bezier):
+    def intersections(self, bezier, threshold = 0.00001):
         """
         Returns a list of the parameters [(t, t'), ...] for the intersections 
         between self and bezier.
         """
-        treshold = 0.00001
-
         c1 = self.reduced
         c2 = bezier.reduced
         pairs = itertools.product(c1, c2)
@@ -479,7 +493,7 @@ class Bezier():
 
         intersections = []
         for pair in pairs:
-            result = curve_intersections(*pair, treshold)
+            result = curve_intersections(*pair, threshold)
             if len(result) > 0:
                 intersections += result
         return intersections
@@ -488,26 +502,40 @@ class Bezier():
         """
         Returns a list of self intersections of the curve. 
         """
-        treshold = 0.00001
+        threshold = 0.00001
 
         c = self.reduced
         pairs = itertools.combinations(c, 2)
 
         pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)]
 
-        print(pairs)
         intersections = []
         for pair in pairs:
-            result = curve_intersections(*pair, treshold)
+            result = curve_intersections(*pair, threshold)
             if len(result) > 0:
                 intersections += result
         return intersections
+
+    def overlaps(self, bezier):
+        """
+        Check if the bounding box of self and bezier overlaps. 
+        """
+        # 0      1      2      3
+        # min_x, max_x, min_y, max_y 
+        bb1 = self.bounding_box
+        bb2 = bezier.bounding_box
+        if bb1[0] >= bb2[1] or bb2[0] >= bb1[1] or bb1[2] >= bb2[3] or bb2[2] >= bb1[3]:
+            return False
+        else:
+            return True
 
 
 class Curve(): 
     """
     A list of Bezier curves corresponds to a single curve object. 
     """
+    # TODO: Would it make sense to combine Curve and Bezier. 
+    # Perhaps Curve can inherit Bezier? 
 
     def __init__(self, *beziers, is_closed = False, name = 'Curves'):
         self.beziers = beziers
@@ -575,43 +603,49 @@ class Curve():
             spline.bezier_points[-1].co = bez.points[3]
             spline.bezier_points[-1].handle_left = bez.points[2]
 
-    def intersections(self):
+    def intersections(self, threshold = 0.00001):
         """
         Find the intersections within the curve. 
-        Start by splitting each curve at each extrema and also at each 
-        infliction point. 
+        The result is a dict e.g. {2 : [(t, t'), ...], (3, 4): [(...)]}
+        where e.g. dict[2] gives the parameter values where self.beziers[2]
+        intersect itself, and dict[(3,4)] (or dict[3,4]) gives a list of tuples of 
+        parameter values where self.beziers[3] intersects self.beziers[4]. 
         """
-        # TODO: Rewrite this to utilize the intersection methods in Bezier. 
+        intersections = {}
 
-        treshold = .00001
-        # Find self intersection for each curve. 
-        # Find curve-curve intersection. 
-        # intersections = {'selfint': [(index, t), ...], 'ccint': [(i1, i2, t1, t2),...] }
-
-        pairs = itertools.combinations(self.beziers, 2)
-        pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)]
-        intersections = [] 
+        for i in range(len(self.beziers)):
+            ints = self.beziers[i].self_intersections() 
+            if ints: 
+                intersections[i] = ints
+        
+        pairs = itertools.combinations(enumerate(self.beziers), 2) # Pair the curves. 
+        pairs = [pair for pair in pairs if pair[0][1].overlaps(pair[1][1])] # Remove pairs which do not have overlapping bounding boxes. 
         for pair in pairs:
-            results = curve_intersections(*pair, treshold)
-            if len(results) > 0: 
-                intersections += results
-        return results
+            results = pair[0][1].intersections(pair[1][1], threshold)
+            if results:
+                intersections[pair[0][0], pair[1][0]] = results
+
+        return intersections
 
     def start_point(self):
+        """
+        Return the starting point of the curve. 
+        """
         return self.beziers[0].start_point() 
 
     def end_point(self):
+        """
+        Return the end point of the curve. 
+        """
         return self.beziers[-1].end_point()
 
-"""
-Idea: Create geometry classes here. 
-These can be initiated using the same parameters as SVGGeometry-classes. 
-These classes can be responsible for creating the geometry when adding to Blender.
-SVGArguments - The arguments from the corresponding SVG-class. These should be parsed and ready to use. E.g. any percentages should be resolved. 
-SVGTransform - A matrix corresponding to the full viewport transform. Calculated in the SVG classes and passed in here. 
-BlenderContext - The Blender context. 
-BlenderCollection - The collection which all geometry should be added to. 
-"""
+# Idea: Create geometry classes here. 
+# These can be initiated using the same parameters as SVGGeometry-classes. 
+# These classes can be responsible for creating the geometry when adding to Blender.
+# SVGArguments - The arguments from the corresponding SVG-class. These should be parsed and ready to use. E.g. any percentages should be resolved. 
+# SVGTransform - A matrix corresponding to the full viewport transform. Calculated in the SVG classes and passed in here. 
+# BlenderContext - The Blender context. 
+# BlenderCollection - The collection which all geometry should be added to. 
 
 def Geometry():
     def __init__(self, is_closed = True):
