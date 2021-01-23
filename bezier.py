@@ -1,6 +1,7 @@
 """
 Classes and utility functions for Bezier curves.  
 """
+THRESHOLD = 0.00001
 from mathutils import Vector, Matrix
 import mathutils
 import math
@@ -42,7 +43,7 @@ def quadratic_solve(a,b,c):
         # case from the caller instead.
         return () 
 
-def curve_intersections(c1, c2, threshold):
+def curve_intersections(c1, c2, threshold = 0.01):
     """
     Recursive method used for finding the intersection between 
     two Bezier curves, c1, and c2. 
@@ -85,6 +86,10 @@ def filter_duplicates(tuples, threshold = 0.01):
 def is_close(a, b, threshold = 0.01):
     comps = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
     return comps
+
+def is_colinear(v1, v2, threshold = 0.01):
+    return v1.cross(v2).length < threshold
+
 
 # Temporary during development. Probably not useful later. 
 
@@ -223,9 +228,13 @@ class Bezier():
         """
         Return the tangent at parameter value t. 
         """
+        # TODO: Fix problem case. Linear curve? 
         def tangent(t): 
             derivative = self.derivative(t) 
-            return derivative / derivative.length
+            if derivative.length > 0: 
+                return derivative / derivative.length #mathutils.vector.length
+            else:
+                return derivative
         
         return tangent
 
@@ -466,11 +475,12 @@ class Bezier():
         results = [] 
         extrema = self.extrema() 
 
-    def intersections(self, bezier, threshold = 0.00001):
+    def intersections(self, bezier):
         """
         Returns a list of the parameters [(t, t'), ...] for the intersections 
         between self and bezier.
         """
+        threshold = THRESHOLD
         c1 = self.reduced
         c2 = bezier.reduced
         pairs = itertools.product(c1, c2)
@@ -488,7 +498,7 @@ class Bezier():
         """
         Returns a list of self intersections of the curve. 
         """
-        threshold = 0.00001
+        threshold = THRESHOLD
 
         c = self.reduced
         pairs = itertools.combinations(c, 2)
@@ -521,13 +531,17 @@ class Bezier():
         """
         left_offset = []
         right_offset = []
-        m1 = Matrix().Rotation(math.radians(90), 3, 'Z')
-        m2 = Matrix().Rotation(-math.radians(90), 3, 'Z')
+        m1 = Matrix().Rotation(math.pi/2, 3, 'Z')
+        m2 = Matrix().Rotation(-math.pi/2, 3, 'Z')
         first = True # For the first curve we need to create the first point.
         test = True
         beziers = []
 
-        beziers = self.reduced
+        # TODO: Fix linear curves. 
+        for bezier in self.reduced:
+            beziers += bezier.split(0.5)
+        
+        beziers = [self]
         # TODO: Consider if there is some smarter way to do this loop. 
         # In case the curve was not suitable for offsetting, 
         # we split again and try again. 
@@ -538,9 +552,10 @@ class Bezier():
         while i < len(beziers):
             bezier = beziers[i]
             p = bezier.points
-            n0 = bezier.normal(0)
-            n1 = bezier.normal(1)
-            if bezier.is_clockwise():
+            n0 = bezier.normal(0) # Normal at t = 0
+            n1 = bezier.normal(1) # Normal at t = 1 
+            # TODO: How do we handle a straight line? 
+            if bezier.is_clockwise(): 
                 m = m1
                 l = 1
             else:
@@ -548,17 +563,39 @@ class Bezier():
                 l = -1 
             nn = l * m @ (p[2] - p[1])
             nn.normalize()
+            
+            # Left offset 
+            # Reuse the point of the last point. They should be the same. 
+            if i != 0:
+                a0 = left_offset[i-1].points[-1] 
+            else:
+                a0 = p[0] - n0 * d
 
-            # TODO: Go back to making a0 and b0 the same as the previous endpoints. 
-            # If the intersect_line_line does not work, then we split to avoid 
-            # problems. 
-            a0 = p[0] - n0 * d
             a1p = p[1] - n0 * d 
             a1pp = p[1] + nn * d
             a2p = p[2] - n1 * d
             a2pp = p[2] + nn * d
             a3 = p[3] - n1 * d
 
+            # Problematic cases:
+            # 1. p1 = p2
+            # 2. a0 - a1p parallel to a1pp - a2pp
+            # 3. a3 - a2p parallel to a1pp - a2pp
+            # How do we handle these? 
+            # 1. Handles coincide. In this case we get nn = (0,0,0). 
+            # 2. and 3. We need to do something smart here. 
+
+            print('nn', nn)
+            print('p2', p[2])
+            print('a3', a3)
+            print('a2p', a2p)
+            print('a1pp', a1pp)
+            print('a2pp', a2pp)
+            # TODO: Write own functions for this.
+            # In case the lines are colinear, then we should
+            # use a1 = a1pp
+            # a2 = a2pp 
+            # I think. 
             a1i = mathutils.geometry.intersect_line_line(a0, a1p, a1pp, a2pp)
             a2i = mathutils.geometry.intersect_line_line(a3, a2p, a1pp, a2pp)
             if a1i is None or a2i is None:
@@ -566,8 +603,13 @@ class Bezier():
                 continue
             a1 = a1i[0]
             a2 = a2i[0]
-
-            b0 = p[0] + n0 * d
+            
+            # Right offset
+            # Reuse the point of the last point. They should be the same. 
+            if i != 0:
+                b0 = right_offset[i-1].points[-1]
+            else:
+                b0 = p[0] + n0 * d
             b1p = p[1] + n0 * d 
             b1pp = p[1] - nn * d
             b2p = p[2] + n1 * d
@@ -576,8 +618,9 @@ class Bezier():
 
             b1i = mathutils.geometry.intersect_line_line(b0, b1p, b1pp, b2pp)
             b2i = mathutils.geometry.intersect_line_line(b3, b2p, b1pp, b2pp)
-            if not b1i or not b2i:
-                beziers[i:i+1] = beziers.split(0.5)
+            if b1i is None or b2i is None:
+                beziers[i:i+1] = bezier.split(0.5)
+                continue
             b1 = b1i[0]
             b2 = b2i[0]
 
@@ -585,65 +628,17 @@ class Bezier():
             b = Bezier(b0, b1, b2, b3)
             left_offset.append(a)
             right_offset.append(b)
-            bezier.add_to_Blender()
+            # bezier.add_to_Blender()
             i += 1
 
         self.left_offset = Curve(*left_offset, name = self.name + ': Left')
         self.right_offset = Curve(*right_offset, name = self.name + ': Right')
-        
+
         self.left_offset.add_to_Blender()
         self.right_offset.add_to_Blender()
 
-        # For the following curves, they start where the previous one ended.
-        # for bezier in beziers:
-        #     p = bezier.points 
-        #     n0 = bezier.normal(0)
-        #     n1 = bezier.normal(1) 
-        #     if bezier.is_clockwise():
-        #         m = m1
-        #         l = 1
-        #     else:
-        #         m = m2
-        #         l = -1
-
-        #     nn = l * m @ (p[2] - p[1]) 
-        #     nn.normalize() 
-
-        #     if first: 
-        #         a0 = p[0] - n0 * d
-        #         b0 = p[0] + n0 * d
-        #         first = False
-        #     else: 
-        #         a0 = left_offset[-1].points[-1]
-        #         b0 = right_offset[-1].points[-1]
-
-        #     a1p  = p[1] - n0 * d 
-        #     a1pp = p[1] + nn * d
-        #     a2p  = p[2] - n1 * d
-        #     a2pp = p[2] + nn * d
-        #     a3   = p[3] - n1 * d
-        #     a1 = mathutils.geometry.intersect_line_line(a0, a1p, a1pp, a2pp)[0]
-        #     a2 = mathutils.geometry.intersect_line_line(a3, a2p, a1pp, a2pp)[0]
-            
-        #     b1p  = p[1] + n0 * d 
-        #     b1pp = p[1] - nn * d
-        #     b2p  = p[2] + n1 * d
-        #     b2pp = p[2] - nn * d
-        #     b3   = p[3] + n1 * d
-        #     b1 = mathutils.geometry.intersect_line_line(b0, b1p, b1pp, b2pp)[0]
-        #     b2 = mathutils.geometry.intersect_line_line(b3, b2p, b1pp, b2pp)[0]
-
-        #     left_offset.append(Bezier(a0, a1, a2, a3))
-        #     right_offset.append(Bezier(b0, b1, b2, b3))
-
-        # self.left_offset = Curve(*left_offset, name = 'Left')
-        # self.right_offset = Curve(*right_offset, name = 'Right')
-
-        # self.left_offset.add_to_Blender()
-        # self.right_offset.add_to_Blender()
-
     def is_clockwise(self):
-        # TODO: Check if curve is_simple. 
+        # TODO: Handle straight lines? 
         a = self.points[1] - self.points[0]
         a.resize_2d()
         b = self.points[3] - self.points[0]
@@ -659,7 +654,20 @@ class Curve():
     A list of Bezier curves corresponds to a single curve object. 
     """
     # TODO: Would it make sense to combine Curve and Bezier. 
-    # Perhaps Curve can inherit Bezier? 
+    # Perhaps Curve can inherit Bezier? Perhaps not. It is not a Bezier curve 
+    # (or rather, it might be a higher order Bezier curve). 
+    # TODO: Handle offset. Utilize the offset method of Bezier when doing this. 
+    
+    # TODO: Handle closed curves. 
+    # 1. End with z. -> Always toggle closed. 
+    # 2. End point = start point but does not end with z. -> Toggle closed 
+    #    only if filled.
+    # 3. End points different and z not set. -> Toggle closed only if filled. 
+
+    # For stroking:
+    # If z is set, draw nice joint between start and end points. 
+    # Else, draw stroke-endcap (butt, round, square) at start and end. 
+    # Stroking does not care about whether the curve is filled or not. 
 
     def __init__(self, *beziers, is_closed = False, name = 'Curves'):
         self.beziers = beziers
@@ -677,6 +685,8 @@ class Curve():
         End point of this and start point of curve must coincide. 
         """
         if self.bezier[-1].end_point() == curve.start_point():
+            # Set the curve points equal so that they are actually the same point. 
+            curve.bezier[0].points[0] = self.bezier[-1].end_point() 
             for bezier in curve.beziers:
                 self.bezier.append(bezier) 
         else:
@@ -726,7 +736,7 @@ class Curve():
             spline.bezier_points[-1].co = bez.points[3]
             spline.bezier_points[-1].handle_left = bez.points[2]
 
-    def intersections(self, threshold = 0.00001):
+    def intersections(self, threshold = 0.01):
         """
         Find the intersections within the curve. 
         The result is a dict e.g. {2 : [(t, t'), ...], (3, 4): [(...)]}
@@ -897,21 +907,8 @@ def classify_curve(p1, p2, p3, p4):
 
 
 
-# Rewrite the lazy properties. 
-"""
-self.cities = lazy_property(cities) 
-lazy_property(cities) -
-    attr_name = '_lazy_cities' 
 
-    def _lazy_property(cities) - 
-        if not hasattr(self, '_lazy_cities'):
-            setattr(self, '_lazy_cities', cities(self)) 
-        return getattr(self, attr_name) 
-    return _lazy_property 
-
-        
-"""
-
+# A smart construction for making a property lazy. 
 def lazy_property(fn):
     attr_name = '_lazy_' + fn.__name__
 
@@ -921,9 +918,6 @@ def lazy_property(fn):
             setattr(self, attr_name, fn(self))
         return getattr(self, attr_name)
     return _lazy_property
-
-# A smart construction for making a property lazy. 
-
 
 class Country:
     def __init__(self, name, capital):
