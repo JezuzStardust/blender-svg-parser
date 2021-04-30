@@ -368,6 +368,13 @@ class Bezier():
         Splits the curve at each extrema and each inflection point
         and returns a list of these. 
         """
+        # TODO: Remove extremas that are "too close". 
+        # Should compare all values pairwise and remove one of every pair that is 
+        # too close to another value. 
+        # Create new empty list. 
+        # Add 0.0 and 1.0. 
+        # For all extremas, we add them only if they are not too close to 
+        # any of the other values. 
         abs_extrema = self.absolute_extrema
         print('abs', abs_extrema)
         extrema = self.extrema
@@ -375,12 +382,13 @@ class Bezier():
         inflections = self.inflection_points
         total = list(set(abs_extrema + extrema + inflections)) # Remove any doubles. 
         total.sort() 
-        # total = [i for i in total if i > 0.05 and i < 0.95]
+        total = [i for i in total if i > 0.001 and i < 0.999]
         if 0.0 not in total:
             total.insert(0, 0.0)
         if 1.0 not in total:
             total.append(1.0)
 
+        print('total', total)
         curves = []
         for i in range(len(total)-1):
             curves.append(self.split(total[i], total[i+1]))
@@ -393,6 +401,8 @@ class Bezier():
         from the center of the box created by the points. 
         """
 
+        # This cannot handle when some of the handles coincides etc. 
+        # Must fix!
         beziers = []
         for bezier in self.reduced:
             beziers += bezier.split(0.5)
@@ -403,7 +413,7 @@ class Bezier():
             all_simple = True
             new_set = []
             for bez in beziers:
-                if bez._is_good() < 0.03:
+                if bez._is_good(0.03):
                     new_set.append(bez)
                 else:
                     all_simple = False
@@ -413,8 +423,7 @@ class Bezier():
         return beziers
 
 
-
-    def _is_good(self):
+    def _is_good(self, threshold = 0.05):
         mid = self.__call__(0.5)
         mid.resize_2d()
         p = self.points
@@ -422,13 +431,17 @@ class Bezier():
         b = (p[2] + p[1])/2 
         c = (p[3] + p[2])/2
         d = (p[1] + p[0])/2
-        a.resize_2d()
-        b.resize_2d()
-        c.resize_2d()
-        d.resize_2d()
-        ints = mathutils.geometry.intersect_line_line_2d(a, b, c, d)
-        jam = max((a-b).length, (c-d).length)
-        return (ints-mid).length / jam
+        if is_colinear(a-b, c-d):
+            return True
+        else:
+            # TODO: Can we skip converting to 2D?
+            a.resize_2d()
+            b.resize_2d()
+            c.resize_2d()
+            d.resize_2d()
+            ints = mathutils.geometry.intersect_line_line_2d(a, b, c, d)
+            jam = max((a-b).length, (c-d).length)
+            return (ints-mid).length / jam < threshold
         
 
     def is_simple(self):
