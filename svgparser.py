@@ -67,8 +67,6 @@ class SVGGeometry:
         "_style",
         "_context",
         "_viewport",
-        "_viewBox",
-        "_preserveAspectRatio",
         "_name",
     )
 
@@ -81,6 +79,11 @@ class SVGGeometry:
         self._transform = Matrix()
         self._style = svgutils.SVG_EMPTY_STYLE
         self._context = context
+        # TODO: Should I init also the other attributes?
+        # TODO: Should all these really be here? 
+        # viewport only in SVG and USE
+        # preserveAspectRatio only in SVG and viewBox 
+        # transform in all but SVG. 
         self._name = None
 
     def parse(self):
@@ -151,6 +154,10 @@ class SVGGeometry:
         """
         Parse the x, y, width, and height attributes.
         """
+        # TODO: Only SVG and USE can establish viewport. 
+        # Is it possible to make a better hierarchy where only
+        # classes that actually need this function have access?
+        # Perhaps with class decorators?
         vp_x = self._node.getAttribute("x") or "0"
         vp_y = self._node.getAttribute("y") or "0"
         vp_width = self._node.getAttribute("width") or "100%"
@@ -442,11 +449,13 @@ class SVGGeometrySVG(SVGGeometryContainer):
     Corresponds to the <svg> elements.
     """
 
-    __slots__ = ()
+    __slots__ = ("_viewBox",
+                 "_preserveAspectRatio",
+                 )
 
     # TODO: This (and SYMBOL which is a subclass) are the only elements that have viewBox and possibly preserveAspectRatio.
     # Perhaps we should move these to the slots here.
-
+ 
     # TODO: Figure out how to set origin in Blender. This requires knowing
     # the dimensions of the outer SVG element.
     # This can be done by making the Loader keep a reference to
@@ -457,8 +466,8 @@ class SVGGeometrySVG(SVGGeometryContainer):
         super().__init__(node, context)
         # If this is the outer most SVG, then store this instance in
         # the dictionary for later use.
-        if not self._context["outer_SVG"]:
-            self._context["outer_SVG"] = self
+        if not self._context["outermost_SVG"]:
+            self._context["outermost_SVG"] = self
 
     def parse(self):
         """
@@ -467,7 +476,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
         since they require knowledge of the ancestor viewBox in case the values
         are given in percentages.
         """
-        # if not self._context['outer_SVG']: # ALREADY DONE AT INIT.
+        # if not self._context['outermost_SVG']: # ALREADY DONE AT INIT.
         #     self._context['Outer_SVG'] = self # ALREADY DONE AT INIT.
         self._viewport = self._parse_viewport()
         self._viewBox = self._parse_viewBox()
@@ -485,8 +494,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
         # Since the viewport is context dependent, this viewBox may change
         # each time the container is used (if referenced multiple times).
         # It is therefore not possible to store the viewBox in self._viewBox.
-        # Instead it is pushed onto a stack.
-        # Note, some of the code here might
+        # Instead it is pushed onto a stack and remove it later. 
         viewBox = self._viewBox
         if not viewBox:
             viewBox = self._calculate_viewBox_from_viewport()
@@ -558,7 +566,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
     def _view_to_transform(self):
         """
-        Parses the viewport and viewBox and converts them into
+        Resolves the viewport and viewBox and converts them into
         an equivalent transform.
         """
         viewBox = self._viewBox
@@ -574,38 +582,11 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
         # Resolve percentages to parent viewport.
         # If viewport missing, use parent viewBox.
-        if viewport:
-            e_x = svgutils.svg_parse_coord(viewport[0], current_viewBox[0])
-            e_y = svgutils.svg_parse_coord(viewport[1], current_viewBox[1])
-            e_width = svgutils.svg_parse_coord(viewport[2], current_viewBox[2])
-            e_height = svgutils.svg_parse_coord(viewport[3], current_viewBox[3])
-        else:
-            e_x = 0
-            e_y = 0
-            e_width = svgutils.svg_parse_coord("100%", current_viewBox[2])
-            e_height = svgutils.svg_parse_coord("100%", current_viewBox[3])
-        # TODO: In case the outermost SVG does not have a width and height specified
-        # they are defaulted to 100%.
-        # The values will then be resolved against the default
-        # viewBox="0 0 0 0"
-        # So instead we default it to 100px.
-        # This probably goes against the specification
-        # since it causes problems for internal SVG's which
-        # have width and/or height = 0 (which should not be rendered at all.
-        # However, this is a strange limit case.
-        # Does it work to simply put the default viewbox to 0 0 100 100 in the context?
-        # Probably!
-        # TODO: Do that.
-        if e_width == 0.0:
-            e_width = 100.0
-        if e_height == 0.0:
-            e_height = 100.0
-        # TODO: Handle 'none'.
-        # This might actually handled 'by accident' by the code below.
-
-        pARx = preserveAspectRatio[0]
-        pARy = preserveAspectRatio[1]
-        meetOrSlice = preserveAspectRatio[2]
+        # TODO: ALL SVG has a viewport!
+        e_x = svgutils.svg_parse_coord(viewport[0], current_viewBox[0])
+        e_y = svgutils.svg_parse_coord(viewport[1], current_viewBox[1])
+        e_width = svgutils.svg_parse_coord(viewport[2], current_viewBox[2])
+        e_height = svgutils.svg_parse_coord(viewport[3], current_viewBox[3])
 
         if viewBox:
             vb_x = svgutils.svg_parse_coord(viewBox[0])
@@ -614,6 +595,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
             vb_height = svgutils.svg_parse_coord(viewBox[3])
         else:
             # TODO: This is the same as is done in calculate_viewBox_from_viewport.
+            # However, faster to do it here instead of calling that function.
             vb_x = 0
             vb_y = 0
             vb_width = e_width
@@ -621,6 +603,13 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
         scale_x = e_width / vb_width
         scale_y = e_height / vb_height
+
+        # TODO: Handle preserveAspectRatio='none', and 'defer'.
+        # This might actually handled 'by accident' by the code below.
+        pARx = preserveAspectRatio[0]
+        pARy = preserveAspectRatio[1]
+        meetOrSlice = preserveAspectRatio[2]
+
         if meetOrSlice == "meet":  # Must also check that align is not none.
             # TODO: Check how none affects this value.
             scale_x = scale_y = min(scale_x, scale_y)
@@ -640,27 +629,28 @@ class SVGGeometrySVG(SVGGeometryContainer):
         m = Matrix()
 
         # Position the origin in the correct place.
-        if self._context["outer_SVG"] is self:
+        if self._context["outermost_SVG"] is self:
             position = self._context["origin"]
-            pos_v = position[0]
-            if pos_v == "T":
-                o_pos_v = 0
-            elif pos_v == "M":
-                o_pos_v = -e_height / 2
-            elif pos_v == "B":
-                o_pos_v = -e_height
+            pos_y = position[0]
+            if pos_y == "T":
+                o_pos_y = 0
+            elif pos_y == "M":
+                o_pos_y = -e_height / 2
+            elif pos_y == "B":
+                o_pos_y = -e_height
+            elif pos_y == "P": #Baseline of the text from LaTeX. 
+                o_pos_y = -e_height + svgutils.svg_parse_coord(self._context["depth"])
+                
 
-            pos_h = position[1]
-            if pos_h == "L":
-                o_pos_h = 0
-            elif pos_h == "C":
-                o_pos_h = -e_width / 2
-            elif pos_h == "R":
-                o_pos_h = -e_width
-
-            depth = svgutils.svg_parse_coord(self._context["depth"])
-
-            m = m @ Matrix.Translation(Vector((o_pos_h, o_pos_v + depth, 0)))
+            pos_x = position[1]
+            if pos_x == "L":
+                o_pos_x = 0
+            elif pos_x == "C":
+                o_pos_x = -e_width / 2
+            elif pos_x == "R":
+                o_pos_x = -e_width
+            
+            m = m @ Matrix.Translation(Vector((o_pos_x, o_pos_y, 0)))
 
         m = m @ Matrix.Translation(Vector((translate_x, translate_y, 0)))
         m = m @ Matrix.Scale(scale_x, 4, Vector((1, 0, 0)))
@@ -697,6 +687,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._height = "0"
         self._rx = "0"
         self._ry = "0"
+
 
     def parse(self):
         """
@@ -1614,6 +1605,7 @@ class SVGGeometrySYMBOL(SVGGeometrySVG):
     a SYMBOL element. In that case, it will not create any geometry.
     The geometry will only be created when referenced by a USE element.
     """
+    # TODO: Rethink the hierarchy?
 
     pass
 
@@ -1622,6 +1614,7 @@ class SVGGeometryDEFS(SVGGeometryContainer):
     """
     Handles the <defs> element.
     """
+    # TODO: This is wrong. It should not render directly. 
 
     pass
 
@@ -1631,7 +1624,7 @@ class SVGGeometryUSE(SVGGeometry):
     <use> element.
     """
 
-    __slots__ = ()
+    __slots__ = ("_href")
     # TODO: Think about where the name for the geometry should come from.
     # Right now the name comes from the shape, but in case symbol has a separate
     # name and that name is the one actually being used, then that name
@@ -1644,14 +1637,22 @@ class SVGGeometryUSE(SVGGeometry):
 
     def parse(self):
         super().parse()
-        self._viewport = self._parse_viewport()
-        # The code below does exactly what parse_viewport does.
-        # vp_x = self._node.getAttribute('x') or '0'
-        # vp_y = self._node.getAttribute('y') or '0'
-        # vp_width = self._node.getAttribute('width') or None
-        # vp_height = self._node.getAttribute('height') or None
+        # self._viewport = self._parse_viewport()
+        vp_x = self._node.getAttribute("x") or "0"
+        vp_y = self._node.getAttribute("y") or "0"
+        vp_width = self._node.getAttribute("width") or None
+        vp_height = self._node.getAttribute("height") or None
+        self._viewport = (vp_x, vp_y, vp_width, vp_height)
+        # Important that width and height are not set if not present. 
+        # See below. 
+        # TODO, the below does not work! 
+        # But wee need to do something similar! 
+        # if not self._node.getAttribute('width'):
+        #     self._viewport[2] = None 
+        # if not self._node.getAttribute('height'):
+        #     self._viewport[3] = None 
 
-        # self._viewport = (vp_x, vp_y, vp_width, vp_height)
+        self._href = self._node.getAttribute("xlink:href")
 
     def create_blender_splines(self):
         """
@@ -1659,11 +1660,10 @@ class SVGGeometryUSE(SVGGeometry):
         """
         # Get the current viewBox.
         current_viewBox = self._context["current_viewBox"]
-        # ...and parse the coordinates with respect to the width and height of the vB.
+        # ...and parse the coords with respect to the width and height of the vB.
         x = svgutils.svg_parse_coord(self._viewport[0], current_viewBox[2])
         y = svgutils.svg_parse_coord(self._viewport[1], current_viewBox[3])
-        # Then add a translation transformation corresponding to the placement
-        # attributes x, and y.
+        # Then add a translation corresponding to the placement attributes x, y.
         translation = Matrix.Translation((x, y, 0))
         self._push_transform(translation)
 
@@ -1672,9 +1672,8 @@ class SVGGeometryUSE(SVGGeometry):
         # Push the style onto the stack.
         self._push_style(self._style)
 
-        # Get a reference to the instance of the referenced geometry.
-        ref = self._node.getAttribute("xlink:href")
-        geom = self._context["defs"].get(ref)
+        # Get the instance of the referenced geometry.
+        geom = self._context["defs"].get(self._href)
 
         # See: https://www.w3.org/TR/SVG11/struct.html#UseElement
         if geom is not None:
@@ -1684,15 +1683,13 @@ class SVGGeometryUSE(SVGGeometry):
                 # ...then save the current viewport of that class...
                 old_viewport = geom.get_viewport()
                 # ...and replace the width and height with the corresponding
-                # values from the use element.
-                # Only replaces the values if they are defined.
+                # values from the use element if present. 
                 width = self._viewport[2] or old_viewport[2]
                 height = self._viewport[3] or old_viewport[3]
                 geom.set_viewport((old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
-                geom.set_viewport(
-                    old_viewport
-                )  # Reset the old viewport, in case geom is referenced again.
+                # Reset the old viewport in case geom is referenced again later.
+                geom.set_viewport(old_viewport)  
             elif geom_class == SVGGeometrySYMBOL:
                 old_viewport = geom.get_viewport()
                 width = self._viewport[2] or "100%"
@@ -1700,7 +1697,7 @@ class SVGGeometryUSE(SVGGeometry):
                 geom.set_viewport((old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
                 geom.set_viewport(old_viewport)
-            elif geom_class is SVGGeometryDEFS:
+            elif geom_class is SVGGeometryDEFS: # TODO: Defs cannot be directly referenced by use since they do not have id!
                 pass
             else:
                 # If it anything else, then we should simply create that geometry.
@@ -1764,9 +1761,11 @@ class SVGLoader(SVGGeometryContainer):
         # m will keep track of the stacked transformations.
         # context is a dictionary which keeps track of the stack of transforms,
         # styles etc. Do not confuse with bpy.context in Blender.
+        # Init viewBox to default to avoid problems for SVG files that do not specify 
+        # width and height on the outermost SVG element. 
+        default_viewBox = (0, 0, 100, 100) 
         context = {
-            "current_viewBox": (0, 0, 0, 0),  # Same as viewBox_stack[-1].
-            "viewport_stack": [(0, 0, 0, 0)],
+            "current_viewBox": (0, 0, 100, 100),  # Same as viewBox_stack[-1].
             "viewBox_stack": [(0, 0, 0, 0)],
             "current_transform": m,  # The full transformation to get from the current node to Blender coordinate space.
             "style_stack": [],  # Stores the styles of all parents at the time of curve creations.
@@ -1774,9 +1773,8 @@ class SVGLoader(SVGGeometryContainer):
             "blender_collection": collection,  # The collection to which all geometry is added.
             "materials": {},  # A dictionary with all defined materials.
             "do_colormanage": True,  # TODO: Calculate this instead by checking if Bl has display device.
-            "outer_SVG": None,  # Keep track of the outermost SVG. Will be used to
-            # find an overall transformation to move around the origin of the geometry.
-            "origin": origin,  # Where the origin should be set (T, M, B, + L, C, R)
+            "outermost_SVG": None,  # Keep track of the outermost SVG.
+            "origin": origin,  # Where the origin should be set (T|M|B|baseline + L|C|R)
             "depth": depth,  # In case of LaTeX text, keep track of distance below baseline.
         }
         super().__init__(node, context)

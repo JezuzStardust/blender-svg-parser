@@ -21,6 +21,9 @@
 # Additions and modifications:
 # Copyright (C) 2020 Jens Zamanian, https://github.com/JezuzStardust
 
+from mathutils import Vector, Matrix
+from math import pi, sin, cos, tan, sqrt, acos
+
 def svg_transform_translate(params):
     """
     Returns a translation matrix.
