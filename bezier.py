@@ -9,6 +9,7 @@ THRESHOLD = 0.000001
 
 from mathutils import Vector, Matrix # TODO: Remove this and use explicit refs.
 import mathutils 
+# import numpy as np
 import math
 import bpy
 import itertools
@@ -20,8 +21,8 @@ import operator
 def are_overlapping(bbbox1, bbbox2):
     """
     Check if two bounding boxes are overlapping.
-    Thinks about redoing this.
     """
+    # TODO: Consider redoing this.
     # 0      1      2      3
     # min_x, max_x, min_y, max_y 
     if bbbox1[0] >= bbbox2[1] or bbbox2[0] >= bbbox1[1] or bbbox1[2] >= bbbox2[3] or bbbox2[2] >= bbbox1[3]:
@@ -29,10 +30,23 @@ def are_overlapping(bbbox1, bbbox2):
     else:
         return True
 
+# def quadratic_solve(a,b,c): 
+#     """Returns the solution of a quadratic equation. 
+#     Numpy version.
+#     """
+#     roots = np.roots([a,b,c])
+#     rot = []
+#     for root in roots:
+#         if np.isreal(root):
+#             rot.append(root)
+#     return tuple(rot)
+
+
 def quadratic_solve(a,b,c): 
+    """Returns the solution of a quadratic equation."""
     if a == 0:
         if b == 0:
-            return (0,)
+            return ()
         else: 
             return (-c / b, )
     
@@ -55,7 +69,7 @@ def curve_intersections(c1, c2, threshold = 0.01):
     two Bezier curves, c1, and c2. 
     """
     # TODO: Make this a method of Bezier and/or Curve. 
-    # Rename to find_intersections_recursively?
+    # It can have the signature _find_intersections_recursively(self, curve, threshold)
 
     if c1._t2 - c1._t1 < threshold and c2._t2 - c2._t1 < threshold:
         # return [((c1._t1 + c1._t2)/2 , (c2._t1 + c2._t2)/2)]
@@ -64,15 +78,16 @@ def curve_intersections(c1, c2, threshold = 0.01):
     cc1 = c1.split(0.5)
     cc2 = c2.split(0.5)
     pairs = itertools.product(cc1, cc2)
-    pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)] 
+    # pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box, pair[1].bounding_box)] 
 
+    pairs = list(filter(lambda x: are_overlapping(x[0].bounding_box, x[1].bounding_box), pairs))
     results = [] 
     if len(pairs) == 0:
         return results
     
     for pair in pairs:
         results += curve_intersections(pair[0], pair[1], threshold)
-    # results = filter_duplicates(results, threshold)
+    results = filter_duplicates(results, threshold)
     return results
 
 def filter_duplicates(tuples, threshold = 0.001):
@@ -170,7 +185,8 @@ class Bezier():
         # TODO: Consider being more explicit with the coordinates. 
         # Printing mathutils.Vector shows only a limited number of decimals. 
         p = self.points
-        string = self.name + '\n' + str(p[0]) + '\n' + str(p[1]) + '\n' + str(p[2]) + '\n' + str(p[3])
+        # string = self.name + '\n' + str(p[0]) + '\n' + str(p[1]) + '\n' + str(p[2]) + '\n' + str(p[3])
+        string = self.name + str(p[0]) + '\n' + str(p[1]) + '\n' + str(p[2]) + '\n' + str(p[3])
         return string
 
     def __call__(self, t):
@@ -215,9 +231,6 @@ class Bezier():
         elif attribute == 'extrema':
             self.extrema = self._get_extrema()
             return self.extrema
-        elif attribute == 'absolute_extrema':
-            self.extrema = self._get_extrema(absolute=True)
-            return self.extrema
         elif attribute == 'inflection_points':
             self.inflection_points = self._get_inflection_points()
             return self.inflection_points
@@ -230,9 +243,13 @@ class Bezier():
     def _get_function(self):
         """Create the function the first time the Bezier curve is __call__:ed."""
         p = self.points
+        a = p[0] + self.location
+        b = - 3 * p[0] + 3 * p[1]
+        c = 3 * p[0] - 6 * p[1] + 3 * p[2]
+        d = - p[0] + 3 * p[1] - 3 * p[2] + p[3]
         def function(t): 
-            return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3
-
+            # return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3 + self.location
+            return a + b * t + c * t**2 + d * t**3  
         return function
 
     def _get_derivative(self):
@@ -295,33 +312,30 @@ class Bezier():
             aligned_points.append(m @ p)
         return aligned_points
 
-    def _get_bounding_box(self, tight=False):
+    def _get_bounding_box(self):
         """Calculate the bounding box of the curve."""
         # TODO: Make it possible to calculate the tight bounding box if this
         # is deemed useful. 
         # TODO: Consider returning the box in some other format. 
         # TODO: Consider using a Rectangle class for this. 
         # Need to calculate the rotation and translation also! 
-        extrema = self._get_extrema(absolute=tight) # TODO: Abs does not work! 
+        extrema = self._get_extrema() # TODO: Abs does not work! 
         min_x = self.__call__(extrema[0])[0]
         max_x = self.__call__(extrema[1])[0]
         min_y = self.__call__(extrema[2])[1]
         max_y = self.__call__(extrema[3])[1]
         return (min_x, max_x, min_y, max_y)
 
-    def _get_extrema(self, absolute=False):
+    def _get_extrema(self):
         """
         Returns the parameter values for the minimum and maximum of the curve
         in the x and y coordinate. 
         (tx_min, tx_min, ty_max, ty_max)
         If absolute we return the extremas of the aligned curve.
         """
-        if absolute:
-            p0, p1, p2, p3 = self.aligned
-        else:
-            p0, p1, p2, p3 = self.points
+        p0, p1, p2, p3 = self.points
 
-        a = (3 * (-p0 + 3 * p1 - 3 * p2 + p3))
+        a = 3 * (-p0 + 3 * p1 - 3 * p2 + p3)
         b = 6 * (p0 - 2*p1 + p2)
         c = 3*(p1 - p0) 
         
@@ -377,12 +391,9 @@ class Bezier():
         # Add 0.0 and 1.0. 
         # For all extremas, we add them only if they are not too close to 
         # any of the other values. 
-        abs_extrema = self.absolute_extrema
-        print('abs', abs_extrema)
         extrema = self.extrema
-        print('ext', extrema)
         inflections = self.inflection_points
-        total = list(set(abs_extrema + extrema + inflections)) # Remove any doubles. 
+        total = list(set(extrema + extrema + inflections)) # Remove any doubles. 
         total.sort() 
         total = [i for i in total if i > 0.001 and i < 0.999]
         if 0.0 not in total:
@@ -390,7 +401,6 @@ class Bezier():
         if 1.0 not in total:
             total.append(1.0)
 
-        print('total', total)
         curves = []
         for i in range(len(total)-1):
             curves.append(self.split(total[i], total[i+1]))
@@ -426,7 +436,7 @@ class Bezier():
         of the bounding box defined by the Bezier.points. 
         If the curve is straight, then we always return True. 
         """
-        mid = self.__call__(0.5)
+        mid = self.__call__(0.5) - self.location
         mid.resize_2d()
         p = self.points
         a = (p[3] + p[0])/2
@@ -452,13 +462,19 @@ class Bezier():
         # TODO: Is this needed? Remove otherwise. 
         pass
 
-    def start_point(self):
+    def start_point(self, world_space = False):
         """Returns the starting point."""
-        return self.points[0]
+        if world_space:
+            return self.points[0] + self.location
+        else:
+            return self.points[0]
 
-    def end_point(self):
+    def end_point(self, world_space = False):
         """Returns the end point."""
-        return self.points[3]
+        if world_space:
+            return self.points[3] + self.location
+        else: 
+            return self.points[3]
 
     def split(self, t1, t2 = None):
         """Splits the Bezier curve at the parameter(s) t1 (and t2). 
@@ -470,6 +486,7 @@ class Bezier():
         The code for this function is almost a straight translation
         of the JavaScript code in the ref above int Python.
         """
+        loc = self.location
         if t1 == 0 and t2 is not None: 
             return self.split(t2)[0]
         elif t2 == 1:
@@ -484,7 +501,7 @@ class Bezier():
             new5 = new2 * (1 - t1) + new3 * t1 
             new6 = new4 * (1 - t1) + new5 * t1
 
-            result = [Bezier(p[0], new1, new4, new6), Bezier(new6, new5, new3, p[3])]
+            result = [Bezier(p[0], new1, new4, new6, location=loc), Bezier(new6, new5, new3, p[3], location=loc)]
 
             # The new split curves should keep track for the original 
             # parameter values at the end points. 
@@ -665,12 +682,14 @@ class Bezier():
             right_offset.append(b)
             i += 1
 
-        self.left_offset = Curve(*left_offset, name = self.name + ': Left', location = self.location)
-        self.right_offset = Curve(*right_offset, name = self.name + ': Right', location = self.location)
+        loc = self.location
+        self.left_offset = Curve(*left_offset, name = self.name + ': Left', location = loc)
+        self.right_offset = Curve(*right_offset, name = self.name + ': Right', location = loc)
 
-        self.left_offset.add_to_Blender()
-        self.right_offset.add_to_Blender()
+        # self.left_offset.add_to_Blender()
+        # self.right_offset.add_to_Blender()
 
+        return self.left_offset, self.right_offset
 
     def is_clockwise(self):
         """Return True if the curve is clockwise."""
@@ -699,6 +718,7 @@ class Curve():
     #    only if filled.
     # 3. End points different and z not set. -> Toggle closed only if filled. 
     # TODO: Handle multiple splines. 
+    # TODO: Handle offsets when the handles at a point are not aligned. 
 
     # Need to somehow figure out how to show that there are multiple splines to handle. 
 
@@ -723,24 +743,23 @@ class Curve():
         Add curve to the this curve at the end. 
         End point of this and start point of curve must coincide. 
         """
-        if self.end_point() == curve.start_point():
-            # Set the curve points equal so that they are actually the same point. 
-            # curve.beziers[0].points[0] = self.end_point() 
-            sp = curve.start_point()
-            sp = self.end_point() 
-            self.beziers += curve.beziers
-            # for bezier in curve.beziers:
-            #     self.bezier.append(bezier) 
-        else:
-            raise Exception('Start and end points of curves must be equal.')
+        curve.beziers[0].points[0] = self.end_point() 
+        self.beziers += curve.beziers
+
+        # if self.end_point() == curve.start_point():
+        #     # Set the curve points equal so that they are actually the same point. 
+        #     curve.beziers[0].points[0] = self.end_point() 
+        #     self.beziers += curve.beziers
+        #     # for bezier in curve.beziers:
+        #     #     self.bezier.append(bezier) 
+        # else:
+        #     raise Exception('Start and end points of curves must be equal.')
 
     def prepend_curve(self, curve):
         """
         Add curve to the this curve at the end. 
         End point of this and start point of curve must coincide. 
         """
-        print('sp', self.start_point())
-        print('ep', curve.end_point())
         if self.start_point() == curve.end_point():
             # Set the curve points equal so that they are actually the same point. 
             ep = curve.end_point()
@@ -760,7 +779,6 @@ class Curve():
             self.beziers.append(bezier)
         else:
             raise Exception('Start and end points of curves must be equal.')
-    
 
     def toggle_closed(self):
         """
@@ -782,7 +800,6 @@ class Curve():
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
-        print('sld', self.location)
         ob.data.resolution_u = 64
         bpy.data.collections['Collection'].objects.link(ob)
         cu.splines.new('BEZIER')
@@ -792,7 +809,6 @@ class Curve():
         # spline.bezier_points[-1].handle_right = self.beziers[0].points[1]
         
         spline.bezier_points[-1].co = self.beziers[0].points[0]
-
         for bez in self.beziers:
             spline.bezier_points[-1].handle_right = bez.points[1]
             spline.bezier_points.add(1)
@@ -823,15 +839,68 @@ class Curve():
 
         return intersections
 
-    def start_point(self):
+    def start_point(self, world_space = True):
         # TODO: Make this a lazy property.
         """Return the starting point of the curve."""
-        return self.beziers[0].start_point() 
+        return self.beziers[0].start_point(world_space) 
 
-    def end_point(self):
+    def end_point(self, world_space = True):
         # TODO: Make this a lazy property.
         """Return the end point of the curve."""
-        return self.beziers[-1].end_point()
+        return self.beziers[-1].end_point(world_space)
+
+    def offset_curve(self, d):
+
+        # off = self.beziers[0].offset_curve(d)
+        # off = self.beziers[1].offset_curve(d)
+        # self.beziers[0].left_offset.add_to_Blender()
+        # self.beziers[1].left_offset.add_to_Blender()
+
+        for bez in self.beziers:
+            bez.offset_curve(d)
+
+        left_curves = []
+        right_curves = []
+        for bez in self.beziers:
+            left_curves.append(bez.left_offset)
+            right_curves.append(bez.right_offset)
+
+        left_curve = left_curves[0]
+        del left_curves[0]
+
+        right_curve = right_curves[0]
+        del right_curves[0]
+
+        for k in left_curves:
+            left_curve.append_curve(k)
+
+        for k in right_curves:
+            right_curve.append_curve(k)
+
+        left_curve.add_to_Blender()
+        right_curve.add_to_Blender()
+        # left_curves = []
+        # right_curves = []
+
+        # for bez in self.beziers:
+        #     print(10*'*')
+        #     l, r = bez.offset_curve(d)
+        #     left_curves.append(l)
+        #     right_curves.append(r)
+
+        # for i in left_curves:
+        #     print(i.start_point(), i.end_point())
+
+        # left_curve = Curve(left_curves[0])
+        # for i in range(1,len(left_curves)):
+        #     left_curve.append_curve(left_curves[i])
+
+        # right_curve = Curve(right_curves[0])
+        # for i in range(1,len(right_curves)):
+        #     right_curve.append_curve(right_curves[i])
+
+        # left_curve.add_to_Blender()
+        # right_curve.add_to_Blender()
 
 # TODO: Is the below a good idea?
 # Idea: Create geometry classes here. 
