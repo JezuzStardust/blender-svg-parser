@@ -4,7 +4,7 @@ Classes and utility functions for Bezier curves.
 
 # Begin constants
 # TODO: Move to separate module. 
-THRESHOLD = 0.00001
+THRESHOLD = 0.000001
 # End constants
 
 from mathutils import Vector, Matrix # TODO: Remove this and use explicit refs.
@@ -58,7 +58,8 @@ def curve_intersections(c1, c2, threshold = 0.01):
     # Rename to find_intersections_recursively?
 
     if c1._t2 - c1._t1 < threshold and c2._t2 - c2._t1 < threshold:
-        return [((c1._t1 + c1._t2)/2 , (c2._t1 + c2._t2)/2)]
+        # return [((c1._t1 + c1._t2)/2 , (c2._t1 + c2._t2)/2)]
+        return [(c1._t1, c2._t1)]
 
     cc1 = c1.split(0.5)
     cc2 = c2.split(0.5)
@@ -71,7 +72,7 @@ def curve_intersections(c1, c2, threshold = 0.01):
     
     for pair in pairs:
         results += curve_intersections(pair[0], pair[1], threshold)
-    results = filter_duplicates(results, threshold)
+    # results = filter_duplicates(results, threshold)
     return results
 
 def filter_duplicates(tuples, threshold = 0.001):
@@ -103,11 +104,35 @@ def bezier_from_Blender(name):
     # The new curves will all be created at the origin which might 
     # not be good. 
     location = cu.location
-    p0 = cu.data.splines[0].bezier_points[0].co + location
-    p1 = cu.data.splines[0].bezier_points[0].handle_right + location
-    p2 = cu.data.splines[0].bezier_points[1].handle_left + location
-    p3 = cu.data.splines[0].bezier_points[1].co + location
-    return Bezier(p0, p1, p2, p3)
+    # p0 = cu.data.splines[0].bezier_points[0].co + location
+    # p1 = cu.data.splines[0].bezier_points[0].handle_right + location
+    # p2 = cu.data.splines[0].bezier_points[1].handle_left + location
+    # p3 = cu.data.splines[0].bezier_points[1].co + location
+    p0 = cu.data.splines[0].bezier_points[0].co
+    p1 = cu.data.splines[0].bezier_points[0].handle_right
+    p2 = cu.data.splines[0].bezier_points[1].handle_left
+    p3 = cu.data.splines[0].bezier_points[1].co
+    return Bezier(p0, p1, p2, p3, location=cu.location)
+
+def curve_from_Blender(name):
+    """Read and import a curve from Blender. 
+    Used mainly during developement (probably).
+    """
+    cu = bpy.data.collections['Collection'].objects[name]
+    # not be good. 
+    location = cu.location
+    beziers = []
+    # Iterate over all splines..
+    for spline in cu.data.splines: 
+        # and within all splines over all points. 
+        i = len(spline.bezier_points)
+        for j in range(0, i - 1):
+            p0 = cu.data.splines[0].bezier_points[j].co
+            p1 = cu.data.splines[0].bezier_points[j].handle_right
+            p2 = cu.data.splines[0].bezier_points[j + 1].handle_left
+            p3 = cu.data.splines[0].bezier_points[j + 1].co
+            beziers.append(Bezier(p0, p1, p2, p3, location = location))
+    return Curve(*beziers, location=location) 
 
 ### End: Utility Functions ###
 
@@ -120,7 +145,7 @@ class Bezier():
     # TODO: Use @property for lazy evaluation of properties. See end of this file.
     #       Probably more Pythonic than using __getattr__ the way I have. 
 
-    def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, name = None):
+    def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, name = None, location = Vector((0,0,0))):
         """ 
         Initializes the curve and sets its points and degree. 
         The points should be mathutils.Vectors of some fixed dimension.
@@ -128,6 +153,7 @@ class Bezier():
         For n points the curve is of order n-1. 
         """
         self.points = [p0, p1, p2, p3]
+        self.location = location
         
         if name:
             self.name = name
@@ -276,7 +302,7 @@ class Bezier():
         # TODO: Consider returning the box in some other format. 
         # TODO: Consider using a Rectangle class for this. 
         # Need to calculate the rotation and translation also! 
-        extrema = self._get_extrema(absolute=tight) # TODO: Does not work! 
+        extrema = self._get_extrema(absolute=tight) # TODO: Abs does not work! 
         min_x = self.__call__(extrema[0])[0]
         max_x = self.__call__(extrema[1])[0]
         min_y = self.__call__(extrema[2])[1]
@@ -418,7 +444,7 @@ class Bezier():
             ints = mathutils.geometry.intersect_line_line_2d(a, b, c, d)
             jam = max((a-b).length, (c-d).length)
             return (ints-mid).length / jam < threshold
-        
+
     def is_simple(self):
         """For 3D curves, this returns True if both handles 
         are on the same side of the curve. 
@@ -502,6 +528,7 @@ class Bezier():
         #       a general class for Blender objects. 
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
+        ob.location = self.location
         bpy.data.collections['Collection'].objects.link(ob)
         ob.data.resolution_u = 64
         cu.splines.new('BEZIER')
@@ -514,11 +541,10 @@ class Bezier():
         spline.bezier_points[-1].co = self.points[3]
         spline.bezier_points[-1].handle_left = self.points[2]
 
-    def intersections(self, bezier):
+    def intersections(self, bezier, threshold=THRESHOLD):
         """Returns a list of the parameters [(t, t'), ...] for the intersections 
         between self and bezier.
         """
-        threshold = THRESHOLD
         c1 = self.reduced
         c2 = bezier.reduced
         pairs = itertools.product(c1, c2)
@@ -532,9 +558,8 @@ class Bezier():
                 intersections += result
         return intersections
 
-    def self_intersections(self):
+    def self_intersections(self, threshold=THRESHOLD):
         """Returns a list of self intersections of the curve."""
-        threshold = THRESHOLD
         c = self.reduced
         pairs = itertools.combinations(c, 2)
         pairs = [
@@ -640,8 +665,8 @@ class Bezier():
             right_offset.append(b)
             i += 1
 
-        self.left_offset = Curve(*left_offset, name = self.name + ': Left')
-        self.right_offset = Curve(*right_offset, name = self.name + ': Right')
+        self.left_offset = Curve(*left_offset, name = self.name + ': Left', location = self.location)
+        self.right_offset = Curve(*right_offset, name = self.name + ': Right', location = self.location)
 
         self.left_offset.add_to_Blender()
         self.right_offset.add_to_Blender()
@@ -673,36 +698,60 @@ class Curve():
     # 2. End point = start point but does not end with z. -> Toggle closed 
     #    only if filled.
     # 3. End points different and z not set. -> Toggle closed only if filled. 
+    # TODO: Handle multiple splines. 
+
+    # Need to somehow figure out how to show that there are multiple splines to handle. 
 
     # For stroking:
     # If z is set, draw nice joint between start and end points. 
     # Else, draw stroke-endcap (butt, round, square) at start and end. 
     # Stroking does not care about whether the curve is filled or not. 
 
-    def __init__(self, *beziers, is_closed = False, name = 'Curves'):
+    def __init__(self, *beziers, is_closed = False, name = 'Curve', location = Vector((0,0,0))):
         self.beziers = beziers
         self.is_closed = is_closed
         self.name = name
+        self.location = location
         # Append curve-name to each Bezier. (Might reconsider this later). 
         for bezier in self.beziers:
             bezier.name = self.name + ':' + bezier.name 
             bezier._t1 = 0
             bezier._t2 = 1
 
-    def add_curve(self, curve):
+    def append_curve(self, curve):
         """
-        Add curve to the current (this) curve. 
+        Add curve to the this curve at the end. 
         End point of this and start point of curve must coincide. 
         """
-        if self.bezier[-1].end_point() == curve.start_point():
+        if self.end_point() == curve.start_point():
             # Set the curve points equal so that they are actually the same point. 
-            curve.bezier[0].points[0] = self.bezier[-1].end_point() 
-            for bezier in curve.beziers:
-                self.bezier.append(bezier) 
+            # curve.beziers[0].points[0] = self.end_point() 
+            sp = curve.start_point()
+            sp = self.end_point() 
+            self.beziers += curve.beziers
+            # for bezier in curve.beziers:
+            #     self.bezier.append(bezier) 
         else:
             raise Exception('Start and end points of curves must be equal.')
+
+    def prepend_curve(self, curve):
+        """
+        Add curve to the this curve at the end. 
+        End point of this and start point of curve must coincide. 
+        """
+        print('sp', self.start_point())
+        print('ep', curve.end_point())
+        if self.start_point() == curve.end_point():
+            # Set the curve points equal so that they are actually the same point. 
+            ep = curve.end_point()
+            ep = self.start_point() 
+            self.beziers = curve.beziers + self.beziers
+            # for bezier in curve.beziers:
+            #     self.bezier.append(bezier) 
+        else:
+            raise Exception('Start point of this curve must equal end point of the prepended curve.')
     
-    def add_bezier(self, bezier):
+    def append_bezier(self, bezier):
         """
         Add a single Bezier curve in the end of the curve. 
         End and start points must match. 
@@ -712,6 +761,7 @@ class Curve():
         else:
             raise Exception('Start and end points of curves must be equal.')
     
+
     def toggle_closed(self):
         """
         Toggles the curve closed.
@@ -731,6 +781,8 @@ class Curve():
         # TODO: How should we choose which collection to add the curve to? 
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
+        ob.location = self.location
+        print('sld', self.location)
         ob.data.resolution_u = 64
         bpy.data.collections['Collection'].objects.link(ob)
         cu.splines.new('BEZIER')
@@ -772,10 +824,12 @@ class Curve():
         return intersections
 
     def start_point(self):
+        # TODO: Make this a lazy property.
         """Return the starting point of the curve."""
         return self.beziers[0].start_point() 
 
     def end_point(self):
+        # TODO: Make this a lazy property.
         """Return the end point of the curve."""
         return self.beziers[-1].end_point()
 
