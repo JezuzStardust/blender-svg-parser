@@ -143,12 +143,18 @@ def bezier_from_Blender(name):
     Used mainly during developement (probably).
     """
     cu = bpy.data.collections['Collection'].objects[name]
-    p0 = cu.data.splines[0].bezier_points[0].co
-    p1 = cu.data.splines[0].bezier_points[0].handle_right
-    p2 = cu.data.splines[0].bezier_points[1].handle_left
-    p3 = cu.data.splines[0].bezier_points[1].co
+    bezier_points = cu.data.splines[0].bezier_points
+    start_handle_left = bezier_points[0].handle_left
+    p0 = bezier_points[0].co
+    p1 = bezier_points[0].handle_right
+    p2 = bezier_points[1].handle_left
+    p3 = bezier_points[1].co
+    print(p0)
+    end_handle_right = bezier_points[1].handle_right
     loc = cu.location
-    return Bezier(p0, p1, p2, p3, name=name, location=loc)
+    return Bezier(p0, p1, p2, p3, name=name, location=loc, 
+                  start_handle_left = start_handle_left,
+                  end_handle_right = end_handle_right)
 
 def spline_from_Blender(name):
     """Read and import a curve from Blender. 
@@ -160,17 +166,24 @@ def spline_from_Blender(name):
     beziers = []
     # Iterate over all splines..
     loc = cu.location
-    closed = cu.data.splines[0].use_cyclic_u
-    for spline in cu.data.splines: 
-        # and within all splines over all points. 
-        i = len(spline.bezier_points) - 1
-        for j in range(0, i):
-            p0 = cu.data.splines[0].bezier_points[j].co
-            p1 = cu.data.splines[0].bezier_points[j].handle_right
-            p2 = cu.data.splines[0].bezier_points[j + 1].handle_left
-            p3 = cu.data.splines[0].bezier_points[j + 1].co
-            beziers.append(Bezier(p0, p1, p2, p3, location = loc))
-    return Spline(*beziers, name=name, location=loc, closed = closed) 
+    spline = cu.data.splines[0]
+    closed = spline.use_cyclic_u
+    i = len(spline.bezier_points) - 1
+    bezier_points = spline.bezier_points
+    for j in range(0, i):
+        p0 = bezier_points[j].co
+        p1 = bezier_points[j].handle_right
+        p2 = bezier_points[j + 1].handle_left
+        p3 = bezier_points[j + 1].co
+        beziers.append(Bezier(p0, p1, p2, p3, location = loc))
+    start_handle_left = bezier_points[0].handle_left
+    end_handle_right = bezier_points[-1].handle_right
+    return Spline(*beziers, 
+                  name=name, 
+                  location=loc, 
+                  closed = closed, 
+                  start_handle_left = start_handle_left, 
+                  end_handle_right = end_handle_right) 
 
 ### End: Utility Functions ###
 
@@ -183,7 +196,11 @@ class Bezier():
     # TODO: Use @property for lazy evaluation of properties. See end of this file.
     #       Probably more Pythonic than using __getattr__ the way I have. 
 
-    def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, name = None, location = Vector((0,0,0))):
+    def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, 
+                 name = None, 
+                 location = Vector((0,0,0)),
+                 start_handle_left = None,
+                 end_handle_right = None):
         """ 
         Initializes the curve and sets its points and degree. 
         The points should be mathutils.Vectors of some fixed dimension.
@@ -191,6 +208,8 @@ class Bezier():
         For n points the curve is of order n-1. 
         """
         self.points = [p0, p1, p2, p3]
+        self.start_handle_left = start_handle_left
+        self.end_handle_right = end_handle_right
         self.location = location
         
         if name:
@@ -508,7 +527,7 @@ class Bezier():
         cu.splines.new('BEZIER')
         return cu
 
-    def add_to_Blender(self, blender_curve_object = None, stringed=False):
+    def add_to_Blender(self, blender_curve_object = None, stringed = False):
         """Adds the curve to Blender as splines."""
 
         # Stringed = True means that the Bezier is added as a series
@@ -529,12 +548,16 @@ class Bezier():
 
         p = self.points
 
-        if not stringed:
-            bezier_points[-1].co = p[0]
+        print(len(bezier_points))
         bezier_points[-1].handle_right = p[1]
         bezier_points.add(1)
         bezier_points[-1].handle_left = p[2]
         bezier_points[-1].co = p[3]
+        if not stringed:
+            # If not part of spline set also the first point and the end handle.
+            bezier_points[-2].co = p[0]
+            bezier_points[-2].handle_left = self.start_handle_left
+            bezier_points[-1].handle_right = self.end_handle_right
 
     def intersections(self, bezier, threshold=THRESHOLD):
         """Returns a list of the parameters [(t, t'), ...] for the intersections 
@@ -837,20 +860,28 @@ class Spline():
         spline.use_cyclic_u = self.closed
         bezier_points = spline.bezier_points
 
-
         # TODO: This is just a temporary hack. Fix this!
 
         # TODO: This actually sets each bezier_point.co twice! Rethink!
         
+        # Set the first point and the left handle of the first point.
         sp = self.start_point(world_space = False)
-        bezier_points[0].handle_left = sp # Set the first handle. 
         bezier_points[0].co = sp # Set the first point. 
+        sh = self.start_handle_left
+        if sh:
+            bezier_points[0].handle_left = sh
+        else:
+            bezier_points[0].handle_left = sp
         
         for bez in self.beziers:
             bez.add_to_Blender(cu, stringed=True)
 
         # Set the last handle
-        bezier_points[-1].handle_right = self.beziers[-1].points[-1]
+        eh = self.end_handle_right
+        if eh:
+            bezier_points[-1].handle_right = eh
+        else:
+            bezier_points[-1].handle_right = self.end_point(world_space = False)
 
     def intersections(self, threshold = 0.001):
         """
