@@ -249,6 +249,8 @@ class Bezier():
         """
         dist = self.location - vector
         self.points = [p + dist for p in self.points]
+        self.start_handle_left = self.start_handle_left +  dist
+        self.end_handle_right = self.end_handle_right + dist
         self.location = vector
 
     def derivative(self, t):
