@@ -3,6 +3,7 @@
 This is a slightly imporved SVG parser based on SVG importer addon from Blender.
 The original source code can be found e.g. [here](https://github.com/sobotka/blender-addons/tree/master/io_curve_svg). 
 
+
 **Work in progress.** 
 
 ## How to test it
@@ -23,9 +24,23 @@ the latest version. In that case, add
 import importlib
 importlib.reload(svgparser.svgparser)
 ```
+
+## Current work: 
+Currently I am working on a module for Bézier curves. This will handle all the calculations for e.g. strokes.
+To test this, you can add a poly-Bézier curve (add a Bézier curve and extrude one of the ends a few times) and then do the following:
+```python
+import svgparser.bezier as sb
+c = sb.spline_from_Blender('BezierCurve')
+c.stroke()
+```
+This will add a stroke around the path. The encaps of this will depend on what I was working on when the code was cloned, but it can manually be changed in the code (in the Spline.stroke method).
+
+You can also find intersections between curves, and curve self intersections. These will be used later when I will be trying to figure out how to reduce an intersecting stroke shape so that it does not overlap with itself. Blender tends to handle the filling of such curves in a strange way. 
+
+
 ## Comparisons
 ![tiger.svg comparison](https://github.com/JezuzStardust/blender-svg-parser/blob/main/Comparisons/Tiger%20SVG%20comparison.png)
-Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. 
+Left: File imported with standard SVG importer. Right: Imported with this plugin. Each new curve is automatically offset slightly in the z-direction. This simulates the drawing order of the SVG file. (Note, this feature is currently turned off. I will consider adding it back later.)
 Original SVG-file: [tiger.svg](https://commons.wikimedia.org/wiki/File:Ghostscript_Tiger.svg)
 
 ## Current status
