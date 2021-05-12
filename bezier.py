@@ -109,9 +109,8 @@ def curve_intersections(c1, c2, threshold = 0.01):
     cc1 = c1.split(0.5)
     cc2 = c2.split(0.5)
     pairs = itertools.product(cc1, cc2)
-    # pairs = [pair for pair in pairs if are_overlapping(pair[0].bounding_box(), pair[1].bounding_box())] 
 
-    pairs = list(filter(lambda x: are_overlapping(x[0].bounding_box(), x[1].bounding_box()), pairs))
+    pairs = list(filter(lambda x: are_overlapping(x[0].bounding_box(world_space = True), x[1].bounding_box(world_space = True)), pairs))
     results = [] 
     if len(pairs) == 0:
         return results
@@ -149,7 +148,6 @@ def bezier_from_Blender(name):
     p1 = bezier_points[0].handle_right
     p2 = bezier_points[1].handle_left
     p3 = bezier_points[1].co
-    print(p0)
     end_handle_right = bezier_points[1].handle_right
     loc = cu.location
     return Bezier(p0, p1, p2, p3, name=name, location=loc, 
@@ -160,30 +158,33 @@ def spline_from_Blender(name):
     """Read and import a curve from Blender. 
     Used mainly during development (probably).
     """
-    # TODO: Should check if the spline is closed.
+    # TODO: Small optimization: Start and end handles are really only necessary
+    # to get for the first and last Bezier.
     cu = bpy.data.collections['Collection'].objects[name]
-    # not be good. 
     beziers = []
-    # Iterate over all splines..
     loc = cu.location
     spline = cu.data.splines[0]
     closed = spline.use_cyclic_u
-    i = len(spline.bezier_points) - 1
     bezier_points = spline.bezier_points
+    i = len(spline.bezier_points) - 1
     for j in range(0, i):
+        handle_left = bezier_points[j].handle_left
         p0 = bezier_points[j].co
         p1 = bezier_points[j].handle_right
         p2 = bezier_points[j + 1].handle_left
         p3 = bezier_points[j + 1].co
-        beziers.append(Bezier(p0, p1, p2, p3, location = loc))
-    start_handle_left = bezier_points[0].handle_left
-    end_handle_right = bezier_points[-1].handle_right
+        handle_right = bezier_points[j + 1].handle_right
+        beziers.append(Bezier(p0, p1, p2, p3, location = loc, 
+                              start_handle_left = handle_left, 
+                              end_handle_right = handle_right
+                              )
+                       )
+
     return Spline(*beziers, 
                   name=name, 
                   location=loc, 
-                  closed = closed, 
-                  start_handle_left = start_handle_left, 
-                  end_handle_right = end_handle_right) 
+                  closed = closed,
+                  )
 
 ### End: Utility Functions ###
 
@@ -193,14 +194,13 @@ class Bezier():
     p0, p1, p2, p3 are mathutils.Vector
     """
     # TODO: Use slots if that optimizes performance. 
-    # TODO: Use @property for lazy evaluation of properties. See end of this file.
-    #       Probably more Pythonic than using __getattr__ the way I have. 
 
     def __init__(self, p0, p1, p2, p3, t1 = 0, t2 = 1, 
                  name = None, 
                  location = Vector((0,0,0)),
                  start_handle_left = None,
-                 end_handle_right = None):
+                 end_handle_right = None 
+                 ):
         """ 
         Initializes the curve and sets its points and degree. 
         The points should be mathutils.Vectors of some fixed dimension.
@@ -208,8 +208,8 @@ class Bezier():
         For n points the curve is of order n-1. 
         """
         self.points = [p0, p1, p2, p3]
-        self.start_handle_left = start_handle_left
-        self.end_handle_right = end_handle_right
+        self.start_handle_left = start_handle_left or p0
+        self.end_handle_right = end_handle_right or p3 
         self.location = location
         
         if name:
@@ -231,13 +231,19 @@ class Bezier():
         string = self.name + str(p[0]) + '\n' + str(p[1]) + '\n' + str(p[2]) + '\n' + str(p[3])
         return string
 
-    def __call__(self, t):
+    def __call__(self, t, world_space = False):
         """ Returns the value at parameter t."""
+        # TODO: Add world_space parameter.
         p = self.points
-        return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3 + self.location
+        if world_space: 
+            return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3 + self.location
+        else:
+            return p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3
     
     def __reversed__(self):
         self.points = list(reversed(self.points))
+        self.start_handle_left, self.end_handle_right = self.end_handle_right, self.start_handle_left
+        
 
     def set_point(self, point, i):
         """Sets the point with index i of the Bezier."""
@@ -256,7 +262,7 @@ class Bezier():
     def derivative(self, t):
         p = self.points
         return 3 * (p[1] - p[0]) * (1-t)**2 + 6 * (p[2] - p[1]) * (1-t) * t + 3 * (p[3] - p[2]) * t**2 
-        
+
     def second_derivative(self, t):
         """Evaluate the second derivative at parameter t."""
         # TODO: Only used in curvature, which is currently not used for anything. 
@@ -277,7 +283,7 @@ class Bezier():
         # a = self.tangent(t)
         # return Vector((a[1], -a[0], 0))
         # TODO: Run tests and use the faster version.
-        
+
     def curvature(self, t):
         """Returns the curvature at parameter t."""
         d = self.derivative(t)
@@ -302,18 +308,17 @@ class Bezier():
             aligned_points.append(m @ p)
         return aligned_points
 
-    def bounding_box(self):
+    def bounding_box(self, world_space = False):
         """Calculate the bounding box of the curve."""
         # TODO: Make it possible to calculate the tight bounding box if this
         # is deemed useful. 
-        # TODO: Consider returning the box in some other format. 
-        # TODO: Consider using a Rectangle class for this. 
+        # TODO: Consider using a Rectangle class for this?
         # Need to calculate the rotation and translation also! 
-        extrema = self.extrema() # TODO: Abs does not work! 
-        min_x = self.__call__(extrema[0])[0]
-        max_x = self.__call__(extrema[1])[0]
-        min_y = self.__call__(extrema[2])[1]
-        max_y = self.__call__(extrema[3])[1]
+        extrema = self.extrema()
+        min_x = self.__call__(extrema[0], world_space)[0]
+        max_x = self.__call__(extrema[1], world_space)[0]
+        min_y = self.__call__(extrema[2], world_space)[1]
+        max_y = self.__call__(extrema[3], world_space)[1]
         return (min_x, max_x, min_y, max_y)
 
     def extrema(self):
@@ -323,6 +328,7 @@ class Bezier():
         (tx_min, tx_min, ty_max, ty_max)
         If absolute we return the extremas of the aligned curve.
         """
+        # TODO: This must take the rotation into account when that is added.
         p0, p1, p2, p3 = self.points
 
         a = 3 * (-p0 + 3 * p1 - 3 * p2 + p3)
@@ -337,8 +343,8 @@ class Bezier():
         tx_roots = [t for t in tx_roots if 0.0 <= t <= 1.0] 
         ty_roots = [t for t in ty_roots if 0.0 <= t <= 1.0] 
 
-        x_values = [self.__call__(t)[0] for t in tx_roots] 
-        y_values = [self.__call__(t)[1] for t in ty_roots] 
+        x_values = [self.__call__(t, world_space = True)[0] for t in tx_roots] 
+        y_values = [self.__call__(t, world_space = True)[1] for t in ty_roots] 
 
         tx_max = tx_roots[x_values.index(max(x_values))]
         tx_min = tx_roots[x_values.index(min(x_values))]
@@ -351,8 +357,7 @@ class Bezier():
         """Returns a list of parameter values where inflection points occurs. 
         The length of the list can be zero, one, or two. 
         """
-        # TODO: Make this a lazily calculated data attribute. 
-        # Align the curve to the x-axis to simplify equations. 
+        # TODO: Align the curve to the x-axis to simplify equations. 
         # https://pomax.github.io/bezierinfo/#inflections
         p0, p1, p2, p3 = self.aligned()
         # TODO: Itertools?
@@ -423,10 +428,7 @@ class Bezier():
         of the bounding box defined by the Bezier.points. 
         If the curve is straight, then we always return True. 
         """
-        # __call__ gives the world space location, but points are 
-        # defined in local space. 
-        # We subtract the object location of the call.
-        mid = self.__call__(0.5) - self.location
+        mid = self.__call__(0.5)
         mid.resize_2d()
         p = self.points
         a = (p[3] + p[0])/2
@@ -521,12 +523,14 @@ class Bezier():
         return self._t1 + t * (self._t2 - self._t1) 
 
     def _create_Blender_curve(self):
+        """Creates a new curve object in Blender."""
+        # TODO: Catch the name of the object created by ob.name.
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
         bpy.data.collections['Collection'].objects.link(ob)
         ob.data.resolution_u = 64
-        cu.splines.new('BEZIER')
+        cu.splines.new('BEZIER') # Add a first spline to Blender.
         return cu
 
     def add_to_Blender(self, blender_curve_object = None, stringed = False):
@@ -550,7 +554,6 @@ class Bezier():
 
         p = self.points
 
-        print(len(bezier_points))
         bezier_points[-1].handle_right = p[1]
         bezier_points.add(1)
         bezier_points[-1].handle_left = p[2]
@@ -558,8 +561,8 @@ class Bezier():
         if not stringed:
             # If not part of spline set also the first point and the end handle.
             bezier_points[-2].co = p[0]
-            bezier_points[-2].handle_left = self.start_handle_left
-            bezier_points[-1].handle_right = self.end_handle_right
+            bezier_points[-2].handle_left = self.start_handle_left or p[0]
+            bezier_points[-1].handle_right = self.end_handle_right or p[3]
 
     def intersections(self, bezier, threshold=THRESHOLD):
         """Returns a list of the parameters [(t, t'), ...] for the intersections 
@@ -601,8 +604,8 @@ class Bezier():
         """Check if the bounding box of self and Bezier overlaps."""
         # 0      1      2      3
         # min_x, max_x, min_y, max_y 
-        bb1 = self.bounding_box()
-        bb2 = bezier.bounding_box()
+        bb1 = self.bounding_box(world_space = True)
+        bb2 = bezier.bounding_box(world_space = True)
         if bb1[0] >= bb2[1] or bb2[0] >= bb1[1] or bb1[2] >= bb2[3] or bb2[2] >= bb1[3]:
             return False
         else:
@@ -616,6 +619,8 @@ class Bezier():
         m = Matrix().Rotation(-math.pi/2, 3, 'Z') # TODO: Move to constants.
         first = True # For the first curve we need to create the first point.
         beziers = self.simplified()
+
+        loc = self.location
 
         i = 0
         j = 0
@@ -683,13 +688,12 @@ class Bezier():
                 b2i = mathutils.geometry.intersect_line_line(b3, b2p, b1mp, b2mp)
                 b2 = b2i[0]
 
-            a = Bezier(a0, a1, a2, a3)
-            b = Bezier(b0, b1, b2, b3)
+            a = Bezier(a0, a1, a2, a3, location=loc)
+            b = Bezier(b0, b1, b2, b3, location=loc)
             left_offset.append(a)
             right_offset.append(b)
             i += 1
 
-        loc = self.location
         self.left_offset = Spline(*left_offset, name = self.name + ': Left', location = loc)
         self.right_offset = Spline(*right_offset, name = self.name + ': Right', location = loc)
 
@@ -722,40 +726,28 @@ class Spline():
     # 2. End point = start point but does not end with z. -> Toggle closed 
     #    only if filled.
     # 3. End points different and z not set. -> Toggle closed only if filled. 
-    # TODO: Handle multiple splines. 
-    # TODO: Handle offsets when the handles at a point are not aligned. 
+    # TODO: Handle offsets when the handles at a point are not aligned!
     # TODO: Handle endcaps.
-    # TODO: Handle intersections. 
+    # TODO: Handle intersections between two splines.
     # TODO: Handle massaging of the offset curve so that all intersections are 
     # combined. 
 
-    # Need to somehow figure out how to show that there are multiple splines to handle. 
-
-    # For stroking:
-    # If z is set, draw nice joint between start and end points. 
-    # Else, draw stroke-endcap (butt, round, square) at start and end. 
-    # Stroking does not care about whether the curve is filled or not. 
-
     # TODO: Problem! If we manually change the location, the location of each
     # bezier within the spline are not updated.
+    # Solution: Location should not be changed.
     def __init__(self, 
                  *beziers, 
                  closed = False, 
                  name = "Spline", 
                  location = Vector((0,0,0)), 
-                 start_handle_left = None, # The last handles are not included in any Bezier. 
-                 end_handle_right = None,
                  ):
 
         self.beziers = list(beziers) # TODO: UGLY!
         self.closed = closed
         self.name = name
         self.location = location
-        # Append curve-name to each Bezier. (Might reconsider this later). 
         for bezier in self.beziers:
-            bezier.name = self.name + ':' + bezier.name 
-            self.start_handle_left = start_handle_left
-            self.end_handle_right = end_handle_right
+            # bezier.name = self.name + ':' + bezier.name # Not really useful now.
             bezier._t1 = 0
             bezier._t2 = 1
 
@@ -836,7 +828,7 @@ class Spline():
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
-        bpy.data.collections['Collection'].objects.link(ob)
+        bpy.data.collections["Collection"].objects.link(ob)
         ob.data.resolution_u = 64
         cu.splines.new('BEZIER')
         return cu
@@ -868,18 +860,18 @@ class Spline():
         
         # Set the first point and the left handle of the first point.
         sp = self.start_point(world_space = False)
-        bezier_points[0].co = sp # Set the first point. 
-        sh = self.start_handle_left
+        sh = self.beziers[0].start_handle_left
         if sh:
             bezier_points[0].handle_left = sh
         else:
             bezier_points[0].handle_left = sp
-        
+        bezier_points[0].co = sp # Set the first point. 
+
         for bez in self.beziers:
             bez.add_to_Blender(cu, stringed=True)
 
         # Set the last handle
-        eh = self.end_handle_right
+        eh = self.beziers[-1].end_handle_right
         if eh:
             bezier_points[-1].handle_right = eh
         else:
@@ -887,7 +879,7 @@ class Spline():
 
     def intersections(self, threshold = 0.001):
         """
-        Find the intersections within the curve. 
+        Find the intersections within the spline.
         The result is a dict e.g. {2 : [(t, t'), ...], (3, 4): [(...)]}
         where e.g. dict[2] gives the parameter values where self.beziers[2]
         intersect itself, and dict[(3,4)] (or dict[3,4]) gives a list of tuples of 
@@ -934,6 +926,7 @@ class Spline():
             left_curves.append(bez.left_offset)
             right_curves.append(bez.right_offset)
 
+        # TODO: Make this nicer.
         left_curve = left_curves[0]
         del left_curves[0]
 
@@ -957,8 +950,11 @@ class Spline():
 
     def stroke(self):
         # TODO: This actually overwrites the left and right offset splines. 
+        # Perhaps a deep copy of the left curve before adding it. 
+        # Alternatively do something else.
+        # TODO: 
         # This should not be done! 
-        # self.endcap: butt, round, square
+        # self.endcap: [x] butt, [ ] round, [x] square
         # initial butt
         # self.stroke-linejoin: miter, round, bevel
         # initial miter
@@ -966,28 +962,57 @@ class Spline():
         # inital 4
         # self.strokewidth
         strokewidth = .1
-        endcap = "butt"
+        endcap = "square"
         stroke_linejoin = "miter"
         stroke_miterlimit = .1
 
         # If miter, then we should extend the tangents until they meet.
         self.offset_spline(strokewidth)
-        
+        loc = self.location
+        lc = self.left_curve
+        rc = self.right_curve
+        left_start = lc.start_point()
+        right_start = rc.start_point()
+        left_end = lc.end_point()
+        right_end = rc.end_point()
         if endcap == "butt":
-            left_start = self.left_curve.start_point()
-            right_start = self.right_curve.start_point()
-            start_cap = Bezier(right_start, right_start, left_start, left_start)
+            # Fix the dangling handles.
+            # self.left_curve.beziers[0].handle_left = left_start
+            # self.right_curve.beziers[0].handle_right = right_start
 
-            self.left_curve.prepend_bezier(start_cap)
+            start_cap = Bezier(right_start, right_start, left_start, left_start, 
+                               location=loc)
+            lc.prepend_bezier(start_cap)
 
-            left_end = self.left_curve.end_point()
-            right_end = self.right_curve.end_point()
-            end_cap = Bezier(right_end, right_end, left_end, left_end)
-            self.right_curve.append_bezier(end_cap)
+            end_cap = Bezier(right_end, right_end, left_end, left_end, 
+                             location=loc)
+            rc.append_bezier(end_cap)
+
+        elif endcap == "square":
+            left_start_tangent = left_start - lc.beziers[0].tangent(0) * strokewidth / 2
+            right_start_tangent = right_start - rc.beziers[0].tangent(0) * strokewidth / 2
+            start_cap1 = Bezier(right_start, right_start, right_start_tangent, right_start_tangent, location = loc)
+            start_cap2 = Bezier(right_start_tangent, right_start_tangent, left_start_tangent, left_start_tangent, location = loc)
+            start_cap3 = Bezier(left_start_tangent, left_start_tangent, left_start, left_start, location = loc)
+            lc.prepend_bezier(start_cap3) 
+            lc.prepend_bezier(start_cap2) 
+            lc.prepend_bezier(start_cap1) 
+
+            left_end_tangent = left_end + lc.beziers[-1].tangent(1) * strokewidth / 2 
+            right_end_tangent = right_end + lc.beziers[-1].tangent(1) * strokewidth /2 
+            end_cap1 = Bezier(right_end, right_end, right_end_tangent, right_end_tangent, location = loc)
+            end_cap2 = Bezier(right_end_tangent, right_end_tangent, left_end_tangent, left_end_tangent, location = loc)
+            end_cap3 = Bezier(left_end_tangent, left_end_tangent, left_end, left_end, location = loc)
+            rc.append_bezier(end_cap1)
+            rc.append_bezier(end_cap2)
+            rc.append_bezier(end_cap3)
+        elif endcap == "round":
+            pass
+        else:
+            raise Exception("Unknown endcap type: {}".format(endcap))
 
         self.left_curve.append_spline(reversed(self.right_curve))
-        # self.left_curve.add_to_Blender()
-        # self.right_curve.add_to_Blender()
+        self.left_curve.closed = True
         self.left_curve.add_to_Blender()
 
 
