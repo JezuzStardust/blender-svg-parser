@@ -1,8 +1,6 @@
 """
 Classes and utility functions for Bezier curves.  
 """
-
-# TODO: Design options
 # We will have three classes: Bezier, Spline (stringed together Beziers), and Curve (collection of splines). 
 # They can all inherit from a base class which contains their common variables (e.g. location, rotation) and methods (e.g. add to blender?). The base class can perhaps be an ABC where the implementation of some methods are required.  
 # The base class can also be responsible for the connection to Blender. 
@@ -34,20 +32,20 @@ import itertools
 import operator
 
 class CurveObject():
-    """Base class for all curve."""
+    """Base class for all curves."""
     # TODO: Perhaps it makes more sense to make this the
     # base class of only Spline and Curve.
     # The both have a lot in common.
     def __init__(self, name, location, rotation):
         self.name = name
         self.location = location
-        self.rotation = rotation
-    
-# BBOX
-# overlaps with
-# intersects 
-# points (only bezier curves have points really.. splines have beziers and 
-# curves have splines...? 
+        self.rotation = rotation # TODO: Add rotation handling.
+        
+    # Methods:
+    # - boundary box
+    # - intersections 
+    # - self intersections
+    # - create blender curve object
 
 ### Utility Functions ###
 # TODO: Move to separate module or put in some baseclass.  
@@ -208,6 +206,11 @@ class Bezier():
         For n points the curve is of order n-1. 
         """
         self.points = [p0, p1, p2, p3]
+        # The dangling handles of a Bezier curve in Blender are not 
+        # really part of a mathematical curve. 
+        # Instead they belong to the next curve in case of a
+        # poly-bezier. 
+        # However, since Blender uses them, it is better to keep them.
         self.start_handle_left = start_handle_left or p0
         self.end_handle_right = end_handle_right or p3 
         self.location = location
@@ -289,7 +292,7 @@ class Bezier():
         d = self.derivative(t)
         sd = self.second_derivative(t)
         denom = math.pow(self.derivative(t).length,3/2)
-        return (d[0] * d[1] - sd[0] * sd[1]) / denom
+        return (d[0] * sd[1] - sd[0] * d[1]) / denom
 
     def aligned(self):
         """Returns the points of the corresponding aligned curve. 
@@ -734,7 +737,9 @@ class Spline():
 
     # TODO: Problem! If we manually change the location, the location of each
     # bezier within the spline are not updated.
-    # Solution: Location should not be changed.
+    # Solution: Location should not be changed?
+    # Alternatively, location can be set as a property so that updating it,
+    # updates the location of all the contained bezier curves.
     def __init__(self, 
                  *beziers, 
                  closed = False, 
@@ -810,6 +815,8 @@ class Spline():
         """Add a single Bezier curve to the start of the curve. 
         End point of bezier must match with start point of self.
         """
+
+        print('hej', bezier.name)
         if self.start_point(world_space = True) == bezier.end_point(world_space = True): 
             bezier.translate_origin(self.location)
             sp = self.start_point()
@@ -911,6 +918,9 @@ class Spline():
         return self.beziers[-1].end_point(world_space)
 
     def offset_spline(self, d):
+        """Creates splines called self.left_curve, and self.right_curve that
+        are approximately parallel to self and are offset a distance d in each
+        direction."""
 
         # off = self.beziers[0].offset_curve(d)
         # off = self.beziers[1].offset_curve(d)
@@ -949,12 +959,8 @@ class Spline():
         # right_curve.add_to_Blender()
 
     def stroke(self):
-        # TODO: This actually overwrites the left and right offset splines. 
-        # Perhaps a deep copy of the left curve before adding it. 
-        # Alternatively do something else.
-        # TODO: 
-        # This should not be done! 
-        # self.endcap: [x] butt, [ ] round, [x] square
+        # TODO:
+        # self.endcap: [x] butt, [x] round, [x] square
         # initial butt
         # self.stroke-linejoin: miter, round, bevel
         # initial miter
@@ -962,58 +968,122 @@ class Spline():
         # inital 4
         # self.strokewidth
         strokewidth = .1
-        endcap = "square"
+        # endcap = "butt"
+        # endcap = "square"
+        endcap = "round"
         stroke_linejoin = "miter"
         stroke_miterlimit = .1
 
         # If miter, then we should extend the tangents until they meet.
-        self.offset_spline(strokewidth)
+        self.offset_spline(strokewidth/2)
         loc = self.location
         lc = self.left_curve
         rc = self.right_curve
-        left_start = lc.start_point()
-        right_start = rc.start_point()
-        left_end = lc.end_point()
-        right_end = rc.end_point()
+        
+        stroke = Spline(*lc.beziers, location = loc)
+
+        # End points of left and right offset curves.
+        lc_start = lc.start_point()
+        rc_start = rc.start_point()
+        lc_end = lc.end_point()
+        rc_end = rc.end_point()
+
         if endcap == "butt":
-            # Fix the dangling handles.
-            # self.left_curve.beziers[0].handle_left = left_start
-            # self.right_curve.beziers[0].handle_right = right_start
-
-            start_cap = Bezier(right_start, right_start, left_start, left_start, 
+            # The stroke is simply obtained by connecting the left and right 
+            # offset curves with a straight line.
+            start_cap = Bezier(rc_start, rc_start, lc_start, lc_start, 
                                location=loc)
-            lc.prepend_bezier(start_cap)
-
-            end_cap = Bezier(right_end, right_end, left_end, left_end, 
+            stroke.prepend_bezier(start_cap)
+            end_cap = Bezier(lc_end, lc_end, rc_end, rc_end, 
                              location=loc)
-            rc.append_bezier(end_cap)
+            stroke.append_bezier(end_cap)
 
         elif endcap == "square":
-            left_start_tangent = left_start - lc.beziers[0].tangent(0) * strokewidth / 2
-            right_start_tangent = right_start - rc.beziers[0].tangent(0) * strokewidth / 2
-            start_cap1 = Bezier(right_start, right_start, right_start_tangent, right_start_tangent, location = loc)
-            start_cap2 = Bezier(right_start_tangent, right_start_tangent, left_start_tangent, left_start_tangent, location = loc)
-            start_cap3 = Bezier(left_start_tangent, left_start_tangent, left_start, left_start, location = loc)
-            lc.prepend_bezier(start_cap3) 
-            lc.prepend_bezier(start_cap2) 
-            lc.prepend_bezier(start_cap1) 
+            lc_tangent_start = lc.beziers[0].tangent(0) 
+            rc_tangent_start = rc.beziers[0].tangent(0) 
+            lc_tan_start = lc_start - lc_tangent_start * strokewidth / 2
+            rc_tan_start = rc_start - rc_tangent_start * strokewidth / 2
 
-            left_end_tangent = left_end + lc.beziers[-1].tangent(1) * strokewidth / 2 
-            right_end_tangent = right_end + lc.beziers[-1].tangent(1) * strokewidth /2 
-            end_cap1 = Bezier(right_end, right_end, right_end_tangent, right_end_tangent, location = loc)
-            end_cap2 = Bezier(right_end_tangent, right_end_tangent, left_end_tangent, left_end_tangent, location = loc)
-            end_cap3 = Bezier(left_end_tangent, left_end_tangent, left_end, left_end, location = loc)
-            rc.append_bezier(end_cap1)
-            rc.append_bezier(end_cap2)
-            rc.append_bezier(end_cap3)
+            start_cap1 = Bezier(lc_tan_start, lc_tan_start, 
+                                lc_start, lc_start, location = loc)
+            start_cap2 = Bezier(rc_tan_start, rc_tan_start, lc_tan_start, 
+                                lc_tan_start, location = loc)
+            start_cap3 = Bezier(rc_start, rc_start, rc_tan_start, 
+                                rc_tan_start, location = loc)
+
+            stroke.prepend_bezier(start_cap1)
+            stroke.prepend_bezier(start_cap2)
+            stroke.prepend_bezier(start_cap3)
+
+            lc_tan_end = lc_end + lc.beziers[-1].tangent(1) * strokewidth / 2 
+            rc_tan_end = rc_end + lc.beziers[-1].tangent(1) * strokewidth / 2 
+
+            end_cap1 = Bezier(lc_end, lc_end, lc_tan_end, lc_tan_end, 
+                              location = loc)
+            end_cap2 = Bezier(lc_tan_end, lc_tan_end, rc_tan_end, rc_tan_end, 
+                              location = loc)
+            end_cap3 = Bezier(rc_tan_end, rc_tan_end, rc_end, rc_end, 
+                              location = loc)
+            stroke.append_bezier(end_cap1)
+            stroke.append_bezier(end_cap2)
+            stroke.append_bezier(end_cap3)
         elif endcap == "round":
-            pass
+            alpha = (math.sqrt(4 + 3 * math.tan(math.pi/4)) - 1 ) / 3 * strokewidth/2
+               
+            lc_tan_start = lc_start - lc.beziers[0].tangent(0) * alpha
+            rc_tan_start = rc_start - rc.beziers[0].tangent(0) * alpha
+
+            # TODO: Add function to calculate tangents and normals at different places for splines.
+
+            spline_start = self.start_point()
+            spline_start_tangent = self.beziers[0].tangent(0)
+
+            middle_start = spline_start - strokewidth / 2 * spline_start_tangent
+            spline_start_normal = self.beziers[0].normal(0)
+
+            start_cap1 = Bezier(middle_start, 
+                                middle_start - alpha * spline_start_normal,
+                                lc_tan_start, 
+                                lc_start,
+                                location = loc)
+            start_cap2 = Bezier(rc_start, 
+                                rc_tan_start, 
+                                middle_start + alpha * spline_start_normal,
+                                middle_start,
+                                location = loc)
+
+
+            stroke.prepend_bezier(start_cap1)
+            stroke.prepend_bezier(start_cap2)
+
+            lc_tan_end = lc_end + lc.beziers[-1].tangent(1) * alpha
+            rc_tan_end = rc_end + lc.beziers[-1].tangent(1) * alpha
+
+            spline_end = self.end_point()
+            spline_end_tangent = self.beziers[-1].tangent(1)
+
+            middle_end = spline_end + strokewidth / 2 * spline_end_tangent
+            spline_end_normal = self.beziers[-1].normal(1)
+
+            end_cap1 = Bezier(lc_end, lc_tan_end,
+                              middle_end - alpha * spline_end_normal, 
+                              middle_end,
+                              location = loc) 
+            end_cap2 = Bezier(middle_end, 
+                              middle_end + alpha * spline_end_normal,
+                              rc_tan_end, rc_end,
+                              location = loc)
+
+            stroke.append_bezier(end_cap1)
+            stroke.append_bezier(end_cap2)
+
         else:
             raise Exception("Unknown endcap type: {}".format(endcap))
 
-        self.left_curve.append_spline(reversed(self.right_curve))
-        self.left_curve.closed = True
-        self.left_curve.add_to_Blender()
+        stroke.append_spline(reversed(rc)) # The right side offset curve in reverse.
+        stroke.closed = True
+        stroke.name = self.name + ": Stroke"
+        stroke.add_to_Blender()
 
 
 class Curve():
@@ -1024,7 +1094,9 @@ class Curve():
         self.location = location 
 
     def add_spline(self, spline):
-        """Add a new spline to the curve object."""
+        """Add a new spline to the curve object.
+        Since each spline defines a separate poly-Bezier,
+        there is no need to check for matching start and end points."""
         self.splines.append(spline)
 
     def combine_curves(self, curve):
