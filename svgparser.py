@@ -1468,7 +1468,7 @@ class SVGPATHParser:
         # Ref: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
         # TODO: Consider using numpy for this.
         # There is a lot of vector algebra going on.
-        # Many things can be simplified a lot (and perhaps speed up).
+        # Many things can be simplified a lot (and perhaps sped up).
         angle *= pi / 180
         xp = cos(angle) * (x1 - x2) / 2 + sin(angle) * (y1 - y2) / 2
         yp = -sin(angle) * (x1 - x2) / 2 + cos(angle) * (y1 - y2) / 2
