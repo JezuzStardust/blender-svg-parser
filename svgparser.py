@@ -1156,10 +1156,11 @@ class SVGPATHParser:
         "_current_spline",
         "_splines",  # List containing all finished curves.
         "_commands",
+        "_spline_start",
     )
 
     def __init__(self, d):
-        """"""
+        """ """
         self._data = SVGPATHDataSupplier(d)
         self._index = 0
         self._current_spline = None
@@ -1227,23 +1228,29 @@ class SVGPATHParser:
         The SVG Path M and m commands.
         Moves to a new point and creates a new subpath.
         """
-        # TODO: Fix bug! A move-to should not produce a new Blender object.
-        # Instead it should just produce a new spline within the current curve
-        # object.
         if self._current_spline is not None:
             self._splines.append(self._current_spline)
+
+        previous_point = self._get_last_point()
+
+        if previous_point == "closed":
+            previous_point = self._spline_start
+
+        if previous_point is not None:
+            previous_point = previous_point[0]
+
         self._current_spline = []
         # Check if m is used and move the counter forward in the data.
         relative = command.islower()
         x, y = self._get_next_coord_pair(
-            relative, None
-        )  # The first move does not care if relative...
-        # Should I wait with appending the points until
-        # I know what the handle will be?
-        # On the other hand, using [] for points,
-        # makes it possible to go back and change that
-        # later.
-        self._current_spline.append([(x, y), None, None, "M", None])
+            relative, previous_point
+        )
+
+        start = [(x, y), None, None, "M", None]
+        self._spline_start = start 
+        self._current_spline.append(start)
+
+        # Any following coordinates ae treated as line-to.
         while not self._data.eof() and not self._data.check_next().isalpha():
             last_point = self._get_last_point()
             last_point[2] = None  # Update right handle of last point.

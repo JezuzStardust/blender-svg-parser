@@ -33,7 +33,6 @@ def svg_transform_translate(params):
     m = Matrix.Translation(Vector((tx, ty, 0)))
     return m
 
-
 def svg_transform_scale(params):
     """
     Returns a scale matrix.
@@ -43,7 +42,6 @@ def svg_transform_scale(params):
     m = Matrix.Scale(sx, 4, Vector((1, 0, 0)))
     m = m @ Matrix.Scale(sy, 4, Vector((0, 1, 0)))
     return m
-
 
 def svg_transform_rotate(params):
     """
@@ -60,7 +58,6 @@ def svg_transform_rotate(params):
     m = tm @ rm @ tm.inverted()
     return m
 
-
 def svg_transform_skewX(params):
     """
     Returns a skewX matrix.
@@ -69,7 +66,6 @@ def svg_transform_skewX(params):
     m = Matrix(((1.0, tan(angle), 0), (0, 1, 0), (0, 0, 1))).to_4x4()
     return m
 
-
 def svg_transform_skewY(params):
     """
     Returns a skewY matrix.
@@ -77,7 +73,6 @@ def svg_transform_skewY(params):
     angle = float(params[0]) * pi / 180
     m = Matrix(((1.0, 0, 0), (tan(angle), 1, 0), (0, 0, 1))).to_4x4()
     return m
-
 
 def svg_transform_matrix(params):
     """
@@ -91,7 +86,6 @@ def svg_transform_matrix(params):
     f = float(params[5])
     m = Matrix(((a, c, 0, e), (b, d, 0, f), (0, 0, 1, 0), (0, 0, 0, 1)))
     return m
-
 
 SVG_TRANSFORMS = {
     "translate": svg_transform_translate,
