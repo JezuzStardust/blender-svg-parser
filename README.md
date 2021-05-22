@@ -1,6 +1,6 @@
 # Blender SVG-Parser
 
-This is a slightly imporved SVG parser based on SVG importer addon from Blender.
+This is a slightly improved SVG parser based on SVG importer addon from Blender.
 The original source code can be found e.g. [here](https://github.com/sobotka/blender-addons/tree/master/io_curve_svg). 
 
 
