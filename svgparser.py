@@ -52,6 +52,8 @@ from . import svgutils
 from . import svgtransforms
 
 
+depth = 0
+
 class SVGGeometry:
     """Geometry base class.
 
@@ -68,14 +70,16 @@ class SVGGeometry:
         "_context",
         "_viewport",
         "_name",
+        "_parent"
     )
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Initialize the base class.
         Has a reference to the node, the context (transformations, styles, stack).
         """
         self._node = node
+        self._parent = parent
         self._transform = Matrix()
         self._style = svgutils.SVG_EMPTY_STYLE
         self._context = context
@@ -93,18 +97,23 @@ class SVGGeometry:
         However, in the _parse_transformation we always check first
         if these attributes actually exists first.
         """
+        typeName = ""
         if type(self._node) is xml.dom.minidom.Element:
             self._style = self._parse_style()
             self._transform = self._parse_transform()
             # If the node has an id or class store reference to the instance.
             # Also store the name.
-            for attr in ("id", "class"):
+            typeName = self._node.tagName
+            for attr in ("inkscape:label", "id", "class"):
                 id_or_class = self._node.getAttribute(attr)
                 if id_or_class:
                     if self._context["defs"].get("#" + id_or_class) is None:
                         self._context["defs"]["#" + id_or_class] = self
                     if not self._name:
                         self._name = id_or_class  # Prefer name from id.
+        if not self._name:
+            self._name = "unnamed"
+        print ("  " * depth + typeName + " " + self._name)
 
     def _parse_style(self):
         """
@@ -192,6 +201,10 @@ class SVGGeometry:
         # TODO: Eliminate one of this and new_blender_curve.
         curve = bpy.data.curves.new(name, "CURVE")
         obj = bpy.data.objects.new(name, curve)
+
+        obj.parent = self._parent
+        #print ( "setting parent of {} to {}".format(obj, self._parent))
+
         self._context["blender_collection"].objects.link(obj)
         obj.data.dimensions = "2D"
         obj.data.fill_mode = "BOTH"
@@ -233,6 +246,8 @@ class SVGGeometry:
         # TODO: Keep only one of this and _new_blender_curve_object.
         curve = bpy.data.curves.new(name, "CURVE")
         obj = bpy.data.objects.new(name, curve)
+        obj.parent = self._parent
+
         self._context["blender_collection"].objects.link(obj)
         obj.data.dimensions = "2D"
 
@@ -384,10 +399,10 @@ class SVGGeometryContainer(SVGGeometry):
 
     __slots__ = "_geometries"
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """Initializes the container
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._geometries = []
 
     def parse(self):
@@ -397,18 +412,35 @@ class SVGGeometryContainer(SVGGeometry):
         parse style and transform.
         """
         super().parse()
+        global depth
+        depth += 1
+
+        # Create parent "empty" object to hold created children
+        container = None
+        if ( self._name != "svg8" and self._name != "unnamed"):
+            bpy.ops.object.empty_add(type="PLAIN_AXES", location=(0,0,0))
+            container = bpy.context.object
+            container.name=self._name
+
         for node in self._node.childNodes:
             if type(node) is not xml.dom.minidom.Element:
                 continue
             name = node.tagName
+
             # Sometimes an SVG namespace (xmlns) is used.
             if name.startswith("svg:"):
                 name = name[4:]
             geometry_class = SVG_GEOMETRY_CLASSES.get(name)
             if geometry_class is not None:
-                geometry_instance = geometry_class(node, self._context)
+                geometry_instance = geometry_class(node, self._context, container)
                 geometry_instance.parse()
                 self._geometries.append(geometry_instance)
+        depth -= 1
+
+        if container and self._parent:
+            container.parent = self._parent
+            print( "  " * depth + "Setting parent of {} to {}".format(container.name, container.parent.name))
+            print( "  " * depth + "Children of of {} are {}".format(container.parent.name, container.parent.children))
 
     def create_blender_splines(self):
         """
@@ -423,6 +455,9 @@ class SVGGeometryContainer(SVGGeometry):
         for geom in self._geometries:
             if geom.__class__ not in (SVGGeometrySYMBOL, SVGGeometryDEFS):
                 geom.create_blender_splines()
+                createdObject = bpy.context.object
+                createdObject.parent = self._parent
+
         self._pop_style()
 
     def create_phovie_objects(self):
@@ -462,8 +497,8 @@ class SVGGeometrySVG(SVGGeometryContainer):
     # the outer SVGGeometrySVG instance (a value in context that is only occupied
     # if is empty. The outer will be the first one to be parsed.
 
-    def __init__(self, node, context):
-        super().__init__(node, context)
+    def __init__(self, node, context, parent):
+        super().__init__(node, context, parent)
         # If this is the outer most SVG, then store this instance in
         # the dictionary for later use.
         if not self._context["outermost_SVG"]:
@@ -676,11 +711,11 @@ class SVGGeometryRECT(SVGGeometry):
 
     __slots__ = ("_x", "_y", "_width", "_height", "_rx", "_ry")
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Initialize a new rectangle with default values.
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._x = "0"
         self._y = "0"
         self._width = "0"
@@ -775,6 +810,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._push_transform(self._transform)
         self._add_points_to_blender(coords, spline)
         self._pop_transform(self._transform)
+
 
     def create_phovie_object(self):
         """
@@ -874,11 +910,11 @@ class SVGGeometryELLIPSE(SVGGeometry):
 
     __slots__ = ("_cx", "_cy", "_rx", "_ry", "_is_circle")
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Initialize the ellipse with default values (all zero).
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._is_circle = False
         self._cx = "0"
         self._cy = "0"
@@ -955,11 +991,11 @@ class SVGGeometryLINE(SVGGeometry):
 
     __slots__ = ("_x1", "_y1", "_x2", "_y2")
 
-    def __init__(self, node, context, is_circle=False):
+    def __init__(self, node, context, parent, is_circle=False):
         """
         Initialize the ellipse with default values (all zero).
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._x1 = "0"
         self._y1 = "0"
         self._x2 = "0"
@@ -1000,11 +1036,11 @@ class SVGGeometryPOLYLINE(SVGGeometry):
 
     __slots__ = ("_points", "_is_closed")
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Init the <polyline> using default values (points is empty).
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._is_closed = False
         self._points = []
 
@@ -1065,11 +1101,11 @@ class SVGGeometryPOLYGON(SVGGeometryPOLYLINE):
     SVG <polygon>.
     """
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Init the <polyline> using default values (points is empty).
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._is_closed = True
 
 
@@ -1080,11 +1116,11 @@ class SVGGeometryPATH(SVGGeometry):
 
     __slots__ = "_splines"
 
-    def __init__(self, node, context):
+    def __init__(self, node, context, parent):
         """
         Inits the path to an empty path.
         """
-        super().__init__(node, context)
+        super().__init__(node, context, parent)
         self._splines = None
 
     def parse(self):
@@ -1108,6 +1144,7 @@ class SVGGeometryPATH(SVGGeometry):
             self._name = "Path"
         curve_object_data = self._new_blender_curve_object(self._name)
 
+
         self._push_style(self._style)
         self._push_transform(self._transform)
         for spline in self._splines:
@@ -1119,6 +1156,7 @@ class SVGGeometryPATH(SVGGeometry):
             blender_spline = self._new_spline_to_blender_curve(
                 curve_object_data, is_cyclic
             )
+
             self._add_points_to_blender(spline, blender_spline)
         self._pop_transform(self._transform)
         self._pop_style()
@@ -1742,7 +1780,7 @@ class SVGLoader(SVGGeometryContainer):
 
     # TODO: Fix so that this is done like in the original plugin (e.g. do_colormanage)
     # def __init__(self, blender_context, svg_filepath, origin="TL", depth="1.94397pt"):
-    def __init__(self, blender_context, svg_filepath, origin="TL", depth="0"):
+    def __init__(self, blender_context, svg_filepath, origin="TL", depth="0", scale=0):
         """
         Initializes the loader.
         All geometries will be contained by this instance.
@@ -1759,7 +1797,8 @@ class SVGLoader(SVGGeometryContainer):
         node = xml.dom.minidom.parse(svg_filepath)
         # Translate from pixels (assuming 96 pixels/inches) to Blenders units (meters).
         # 96 pixels/inch, 0.3048 meter/feet, 12 inches per feet.
-        scale = 1 / 96 * 0.3048 / 12
+        if (scale==0):
+            scale = 1 / 96 * 0.3048 / 12
         # SVG y-axis points down, but Blender's y-axis points up,
         # so the y-transformation needs a minus sign.
         m = Matrix()
@@ -1784,4 +1823,4 @@ class SVGLoader(SVGGeometryContainer):
             "origin": origin,  # Where the origin should be set (T|M|B|baseline + L|C|R)
             "depth": depth,  # In case of LaTeX text, keep track of distance below baseline.
         }
-        super().__init__(node, context)
+        super().__init__(node, context, None)
