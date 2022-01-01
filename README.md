@@ -67,6 +67,7 @@ Original SVG-file: [tiger.svg](https://commons.wikimedia.org/wiki/File:Ghostscri
 - [ ] Possibly: Add support for transparency.
 - [ ] Possibly: Add support for some filters. 
 - [ ] Possibly: Add support for embedded images (might be hard to extract). But perhaps not: https://gist.github.com/jeromerobert/ff34f504acd7feb0306a 
+- [ ] Make use of Grease Pencil! Perhaps it would be much better to import as grease pencil. Alternatively, there can be an option to choose which. Grease Pencil seems easier to use for import since we just need to trace out the Bezier curves. It is also much easer to handle strokes (which is very hard using Bezier curves).  
 
 
 ## Improvements/changes
