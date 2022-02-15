@@ -47,15 +47,14 @@ re_match_number = re.compile(match_number)
 match_rgb = r"rgb\(\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*,\s*(\d+)(%)?\s*\)"
 re_match_rgb = re.compile(match_rgb)
 
-# Match a float or a letter.
+# Match a float or a letter for matching drawing commands in a d element.
 # (?:...) is a non-capturing group. We do not need the individual components.
 # TODO: Perhaps make use of match_number pattern above.
 match_float_or_letter = r"(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)|\w"
 re_match_float_or_letter = re.compile(match_float_or_letter)
 
-# Match transform e.g. skewX(23)
-# First match group is name of transform and
-# second group is parameters.
+# Match transform e.g. skewX(23).
+# First match group is name of transform and second group is parameters.
 # Breakdown:
 # Zero or more spaces \s*
 # Followed by one or more letters ([A-z]+), first capture group
@@ -66,7 +65,7 @@ re_match_float_or_letter = re.compile(match_float_or_letter)
 match_transform = r"\s*([A-z]+)\s*\((.*?)\)"
 re_match_transform = re.compile(match_transform)
 
-# Match the align and meet or slice properties.  
+# Parse the align and meet or slice properties.
 # group(0) matches all
 # group(1) matches align (either none or e.g. xMinYMax)
 # group(2) matches comma + align variable.
@@ -111,6 +110,9 @@ SVG_UNITS = {
     "ex": 1.0,
 }
 
+# TODO: This is really part of the parsing. 
+# Would it be possible to do this at an earlier point? 
+# Alternatively we can re-name this?
 def svg_parse_coord(coord, size=0):  # Perhaps the size should always be used.
     """
     Parse a coordinate component from a string.
@@ -125,6 +127,7 @@ def svg_parse_coord(coord, size=0):  # Perhaps the size should always be used.
         return float(size) / 100 * value
     else:
         return value * SVG_UNITS[unit]
+
 
 def read_float(text, start_index=0):
     """
@@ -147,13 +150,14 @@ def read_float(text, start_index=0):
 
     if match is None:
         raise Exception(
-            "Invalid float value near " + text[start_index : start_index + 10]
+            "Invalid float value near " + text[start_index: start_index + 10]
         )
 
     value_string = match.group(0)
     end_index = start_index + match.end(0)
 
     return value_string, end_index
+
 
 def srgb_to_linear(color):
     """
@@ -194,4 +198,3 @@ SVG_DEFAULT_STYLE = {
     "stroke-linejoin": "miter",
     "stroke-miterlimit": 4,
 }
-
