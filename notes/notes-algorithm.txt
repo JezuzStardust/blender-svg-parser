@@ -1,0 +1,20 @@
+Method: 
+
+1. User calls SVGLoader() with Blender context, file path and two options relating to the origin. 
+	 - This inits the SVGLoader to default values and calls super class (SVGGeometryContainer). 
+	 - This is in turn initialized with no geometries and calls the base class SCGGeometry init.
+	 - The SVGLoader is then fully inited.
+2. User calls parse(). 
+	- This method is not found in SVGLoader, but instead in SVGGeometryContainer.
+	- This first calls SVGGeometry.parse, but this does nothing since self._node is not of type xml.dom.minidom.Element (it is xml.dom.minidom.Document). 
+	- Then it continues in SVGGeometryContainer. 
+	- For each childNode it uses the tagName to init a new geoemtry class and then parse that. 
+	- Since some childNodes will themselves be containers, this method will be called recursively. 
+
+
+
+Think about a better way to do all this!
+I think it would be easier to handle all this if the SVGLoader has more responsibility for creating the hierarchy. 
+
+
+
