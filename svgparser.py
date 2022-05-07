@@ -395,12 +395,11 @@ class SVGGeometry:
             "id") or self._node.getAttribute("class")
         return name
 
-    def __repr__(self):
-        # return f"{self.__class__} hej {self._node} du {self._node.getAttribute('tagName')} svejs"
-        return f"{self.__class__}: {self._node.tagName}"
+    # def __repr__(self):
+    #     return f"{self.__class__}"
 
     def print_hierarchy(self, level=0):
-        print(level * "\t" + self._node.__repr__())
+        print(level * "\t" + str(self._node))
 
 class SVGGeometryContainer(SVGGeometry):
     """Container class for SVGGeometry.
@@ -456,20 +455,15 @@ class SVGGeometryContainer(SVGGeometry):
                 geom.create_phovie_objects()
         self._pop_style()
 
-    def __repr__(self):
-        print("Called", self.__class__)
-        string = f"{self._node.__repr__()}"
-        for geo in self._geometries: 
-            if geo is not None:
-                string += f"\n\t{geo.__repr__()}"
-        print("string",string)
-        return string
-
-
-            
+    # def __repr__(self):
+    #     string = f"{self._node.__repr__()}"
+    #     for geo in self._geometries: 
+    #         if geo is not None:
+    #             string += f"\n\t{geo.__repr__()}"
+    #     return string
 
     def print_hierarchy(self, level=0):
-        print(level * "\t" + self._node.__str__())
+        print(level * "\t" + str(self._node))
         for geo in self._geometries:
             geo.print_hierarchy(level=level+1)
 
@@ -1777,11 +1771,15 @@ class SVGLoader(SVGGeometryContainer):
         -----
         All geometries will be contained by this instance.
 
-        The `depth` parameter can be read from, e.g., dvisvgm in case the SVG-file is generated from a LaTeX source. 
+        The `depth` parameter can be read from, e.g., dvisvgm in case the SVG-file 
+        is generated from a LaTeX source. 
         """
         svg_name = os.path.basename(svg_filepath)
         scene = blender_context.scene
-        collection = bpy.data.collections.new(name=svg_name) # TODO: Should an SVG-file really result in a new collection?
+        # TODO: Should an SVG-file really result in a new collection?
+        # Also: should this be called later? We need the collection when we are 
+        # adding geometry to Blender, but not earlier.
+        collection = bpy.data.collections.new(name=svg_name) 
         scene.collection.children.link(collection) # Link the collection to the current scene.
 
         # TODO: Figure out how to call node.unlink() when done. 
@@ -1794,15 +1792,15 @@ class SVGLoader(SVGGeometryContainer):
         m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))
         m = m @ Matrix.Scale(-scale, 4, Vector((0, 1, 0))) # SVG y-axis points down. 
 
-        default_viewBox = (0, 0, 100, 100) # In case the width and height is not specified on the outermost SVG element of the file.
+        default_viewBox = (0, 0, 100, 100) # For SVG-files without specified dimensions.
 
         # context is a dictionary which keeps track of the stack of transforms,
         # styles etc. Do not confuse with bpy.context in Blender.
-        # Shared by all subclasses. 
+        # Shared by all classes.
         context = {
             "current_viewBox": (0, 0, 100, 100),  # Same as viewBox_stack[-1].
             "viewBox_stack": [(0, 0, 0, 0)],
-            "current_transform": m, # Keep track for the stack of transformations from the current node to Blender coordinate space. 
+            "current_transform": m, # Stack of transforms from the current node to Blender coordinate space. 
             "style_stack": [], # Stores the styles of all parents at the time of curve creations.
             "defs": {},  # Reference to elements by id or class.
             "blender_collection": collection, # The collection to which all geometry is added. See TODO above. 
