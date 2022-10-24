@@ -57,12 +57,30 @@
 # 5. Think about if this can be done in a reasonable manner so that this is also 
 #    useful for the standalone SVG-parser. 
 
+# ALGORITHM AND STRUCTURE
+# The goal of this program is to: 
+# - Read and interpret (parse) an .svg-file. 
+# - Create curves in Blender that looks like the .svg-file. 
+# 
+# Since svg-files have a tree structure, we use a component programming pattern, where the main class,
+# SVGLoader, is a subclass of SVGGeometryContainer which is a subclass of SVGGeometry, and it contains
+# the leaves, which are either subclasses of SVGGeometryContainer or SVGGeometry. 
+# 
+# Since the svg specification contains a lot of different quirks, we need to pass over the hierarchy twice. 
+# In the first pass, the file is read and the different classes, which reflects the different svg nodes
+# are created. 
+# The coordinates and style of each object is read as they are in the svg file. 
+# References to objects that are inserted by use nodes are stored. 
+# In the second pass, we calculate the exact dimensions needed for each class based on where in the hierarchy 
+# they sit and which view ports and view boxes that determines their dimensions. 
+# We also replace the use nodes by their corresponding geometry objects.  
+# In the second pass over we also create the Blender spines and insert them into Blender. 
 
 import bpy
 from math import tan, sin, cos, acos, sqrt, pi # May not be needed later. Use numpy instead.
 from mathutils import Matrix, Vector  # May not be needed if numpy is used instead.
 import os
-import numpy as np
+# import numpy as np
 import xml.dom.minidom
 
 from . import svgcolors
@@ -75,7 +93,7 @@ class SVGGeometry:
 
     PARAMETERS
     ----------
-    node : :class:`xml.dom.minidom.Document` || class:`xml.dom.minidom.Element
+    node : :class:`xml.dom.minidom.Document` || class:`xml.dom.minidom.Element`
     context : :class:`dict[]`
     """
 
@@ -96,14 +114,12 @@ class SVGGeometry:
         self._transform = Matrix()
         self._style = svgutils.SVG_EMPTY_STYLE
         self._context = context
-        # TODO: Should I init also _viewport?
+        self._viewport = None
         # TODO: Should all these really be here?
-        # viewport only in SVG and USE but this is the only
-        # common parent. 
-        # preserveAspectRatio only in SVG and viewBox
-        # and transform in all but SVG.
-        # Every attribute of subclasses for which this is the only common
-        # superclass should be contained here! 
+        # - viewport only in SVG and USE but this is the only common parent.
+        # Add extra class and subclass that? SVGGeometryViewPort(SVGGeometry)?
+        # - preserveAspectRatio only in SVG
+        # - viewBox and transform in all except for SVG.
         self._name = None
 
     def parse(self):
@@ -114,7 +130,7 @@ class SVGGeometry:
         """
         if type(self._node) is xml.dom.minidom.Element:
             # TODO: These could be done with side-effects instead. 
-            # In that case they should be rename. 
+            # In that case they should be renamed. 
             # E.g., _parse_style_and_store or similar.
             self._style = self._parse_style()
             self._transform = self._parse_transform()
@@ -178,9 +194,9 @@ class SVGGeometry:
     def _parse_viewport(self):
         """Parse the x, y, width, and height attributes."""
         # TODO: Only SVG and USE can establish viewport,
-        # but this is the only common parent. 
         # We could do multiple inheritance but that 
         # could get messy I think.  
+        # See also __init__ for alternative. 
         vp_x = self._node.getAttribute("x") or "0"
         vp_y = self._node.getAttribute("y") or "0"
         vp_width = self._node.getAttribute("width") or "100%"
@@ -235,7 +251,6 @@ class SVGGeometry:
         Adds a new spline to an existing Blender curve object and returns
         a reference to the spline.
         """
-        # TODO: Move the style calculations elsewhere.
         style = self._calculate_style_in_context()
         if style["fill"] != "none":
             is_cyclic = True
@@ -309,8 +324,7 @@ class SVGGeometry:
         if color in self._context["materials"]:
             return self._context["materials"][color]
 
-        # TODO: Should this be done? Perhaps we still would like different
-        # svg imports to have different materials.
+        # TODO: Consider using a unique name for each different SVG-file instead.
         if "SVG_" + color in bpy.data.materials:
             return bpy.data.materials["SVG_" + color]
 
@@ -395,11 +409,9 @@ class SVGGeometry:
             "id") or self._node.getAttribute("class")
         return name
 
-    # def __repr__(self):
-    #     return f"{self.__class__}"
-
     def print_hierarchy(self, level=0):
-        print(level * "\t" + str(self._node))
+        print(level * "\t" + str(self.__class__))
+
 
 class SVGGeometryContainer(SVGGeometry):
     """Container class for SVGGeometry.
@@ -407,7 +419,7 @@ class SVGGeometryContainer(SVGGeometry):
     it inherits from SVGGeometry.
     """
 
-    __slots__ = "_geometries"
+    __slots__ = ("_geometries")
 
     def __init__(self, node, context):
         """Initializes the container
@@ -448,24 +460,25 @@ class SVGGeometryContainer(SVGGeometry):
         """Create Phovie objects based on the geometries. 
         """
         # TODO: This has nothing to do with the Blender SVG Parser.
-        # Instead we should move this externally. 
+        # Instead we should move this externally?
         self._push_style(self._style)
         for geom in self._geometries:
             if geom.__class__ not in (SVGGeometrySYMBOL, SVGGeometryDEFS):
                 geom.create_phovie_objects()
         self._pop_style()
 
-    # def __repr__(self):
-    #     string = f"{self._node.__repr__()}"
-    #     for geo in self._geometries: 
-    #         if geo is not None:
-    #             string += f"\n\t{geo.__repr__()}"
-    #     return string
+    def __repr__(self):
+        string = f"{self._node.__repr__()}"
+        for geo in self._geometries: 
+            if geo is not None:
+                string += f"\n\t{geo.__repr__()}"
+        return string
 
     def print_hierarchy(self, level=0):
-        print(level * "\t" + str(self._node))
+        print(level * "\t" + str(self.__class__))
         for geo in self._geometries:
             geo.print_hierarchy(level=level+1)
+
 
 class SVGGeometrySVG(SVGGeometryContainer):
     """Corresponds to the <svg> elements.
@@ -761,7 +774,6 @@ class SVGGeometryRECT(SVGGeometry):
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
         factor_x = rx * (sqrt(7) - 1) / 3
         factor_y = ry * (sqrt(7) - 1) / 3
-        # TODO: Probably better to use a specific class for all Bezier curves.
 
         if rounded:
             coords = [
@@ -793,7 +805,7 @@ class SVGGeometryRECT(SVGGeometry):
         self._add_points_to_blender(coords, spline)
         self._pop_transform(self._transform)
 
-    def create_phovie_object(self):
+    def create_phovie_objects(self):
         """
         Create Blender geometry.
         """
@@ -860,6 +872,7 @@ class SVGGeometryRECT(SVGGeometry):
         # TODO: Move this to a general purpose function.
         # Perhaps name can be defined in SVGGeometry even, since
         # all elements can have names.
+        # YES! Do this! 
         if not self._name:
             self._name = "Rect"
 
@@ -868,8 +881,10 @@ class SVGGeometryRECT(SVGGeometry):
         self._add_points_to_blender(coords, spline)
         self._pop_transform(self._transform)
 
+    @staticmethod
     def _new_point(coordinate, handle_left=None, handle_right=None, in_type=None, out_type=None):
         """Not currently used."""
+        # TODO: Remove this?
 
         return {
             "coordinates": coordinate,
@@ -879,7 +894,9 @@ class SVGGeometryRECT(SVGGeometry):
             "out_type": out_type,
         }
 
+    @staticmethod
     def _new_path(is_closed=False):
+        """Not currently used."""
         return {"points": [], "is_closed": is_closed}
 
 
@@ -971,7 +988,7 @@ class SVGGeometryLINE(SVGGeometry):
 
     __slots__ = ("_x1", "_y1", "_x2", "_y2")
 
-    def __init__(self, node, context, is_circle=False):
+    def __init__(self, node, context):
         """
         Initialize the ellipse with default values (all zero).
         """
@@ -1711,7 +1728,9 @@ class SVGGeometryUSE(SVGGeometry):
                     (old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
                 geom.set_viewport(old_viewport)
-            elif geom_class is SVGGeometryDEFS:  # TODO: Defs cannot be directly referenced by use since they do not have id!
+            elif geom_class is SVGGeometryDEFS:  
+                # TODO: DEFS cannot be directly referenced by USE since they do not have id!
+                # Unclear what to do here? 
                 pass
             else:
                 # If it anything else, then we should simply create that geometry.
@@ -1737,17 +1756,16 @@ SVG_GEOMETRY_CLASSES = {
     "path": SVGGeometryPATH,
     "symbol": SVGGeometrySYMBOL,
     "use": SVGGeometryUSE,
-    "defs": SVGGeometryDEFS,
-}
+    "defs": SVGGeometryDEFS, }
 
-### End: Classes ###
 
 class SVGLoader(SVGGeometryContainer):
     """Parse an SVG file and creates curve objects in Blender."""
 
     # TODO: Fix so that do_colormanage is done as in the original plugin. 
+    
 
-    def __init__(self, blender_context, svg_filepath, origin="TL", depth="0.001"):
+    def __init__(self, blender_context, svg_filepath, origin="TL", depth="0"):
         """Initialize the loader.
 
         Parameters
