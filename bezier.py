@@ -35,10 +35,10 @@ import mathutils
 import math
 import bpy
 import itertools
-import operator
+# import operator
 
 # Utility
-def add_line(a,b): 
+def add_line(a, b):
     me = bpy.data.meshes.new('Line')
     ob = bpy.data.objects.new('Line', me)
     bpy.data.collections['Collection'].objects.link(ob)
@@ -220,7 +220,7 @@ class Bezier():
                  location = Vector((0,0,0)),
                  start_handle_left = None,
                  end_handle_right = None 
-                 ):
+                 ) -> None:
         """ 
         Initializes the curve and sets its points and degree. 
         The points should be mathutils.Vectors of some fixed dimension.
