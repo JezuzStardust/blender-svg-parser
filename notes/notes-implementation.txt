@@ -1,3 +1,20 @@
+Since all geometry creating classes (e.g. rectangle, path, etc) are converted to one or more cubic Bezier curves we can introduce a self.splines list which contains all splines. The format for each spline should be considered carefully. 
+Perhaps the following would do: 
+
+point: simply a mathutils.Vector
+
+- Bezier: a basic Bezier curve with two end points and two handles. Each of this is a point (mathutils.Vector). 
+  Two different Bezier curves can contain the same instance of a point in case the two curves are connected. 
+
+- Spline: An ordered list of multiple Bezier curves where the end point of the previous Bezier and the starting point of the next are the same. 
+  There should be a property which says is the spline is cyclic or not. 
+
+- Curve: A list of multiple splines. E.g. a representation of the letter A contains two splines: one for the outer and one for the inner outline. 
+
+Each SVGGeometry can then contain a curve object. 
+
+
+Alternative with Bezier class. 
 1. 	Write a separate class for Bezier curves.
 	- Finding self intersections?
 	- In long run also add possibility to make it grease pencil itself. 
