@@ -17,6 +17,11 @@ Classes and utility functions for Bezier curves.
 # import cProfile
 # cProfile.run('<commands here as quoted string'>)
 
+# TODO: Connection to Blender objects
+# - Each class lives by itself, but it should be mirrored by a Blender object. 
+# - Add a bool inBlender that says if the curve has been added to Blender.
+# - Add a function to sync the current curve with the corresponding curve in Blender.
+
 
 # Begin constants
 # TODO: Move to separate module. 
@@ -31,6 +36,19 @@ import math
 import bpy
 import itertools
 import operator
+
+# Utility
+def add_line(a,b): 
+    me = bpy.data.meshes.new('Line')
+    ob = bpy.data.objects.new('Line', me)
+    bpy.data.collections['Collection'].objects.link(ob)
+    ob.data.vertices.add(2)
+    ob.data.vertices[0].co = a
+    ob.data.vertices[1].co = b
+    ob.data.edges.add(1)
+    ob.data.edges[0].vertices = (0,1) 
+    ob.data.update(calc_edges_loose=True)
+# End utility
 
 class CurveObject():
     """Base class for all curves."""
@@ -250,7 +268,6 @@ class Bezier():
     def __reversed__(self):
         self.points = list(reversed(self.points))
         self.start_handle_left, self.end_handle_right = self.end_handle_right, self.start_handle_left
-        
 
     def set_point(self, point, i):
         """Sets the point with index i of the Bezier."""
@@ -647,8 +664,10 @@ class Bezier():
         m = Matrix().Rotation(-math.pi/2, 3, 'Z') # TODO: Move to constants.
         beziers = self.simplified()
 
-        loc = self.location
+        # beziers = [self]
 
+        loc = self.location
+        print("Beginning offset_curve")
         i = 0
         j = 0
         while i < len(beziers) and j < 100: #max iterations
@@ -718,9 +737,13 @@ class Bezier():
             if b2 is None: 
                 b2i = mathutils.geometry.intersect_line_line(b3, b2p, b1mp, b2mp)
                 b2 = b2i[0]
-
             a = Bezier(a0, a1, a2, a3, location=loc)
             b = Bezier(b0, b1, b2, b3, location=loc)
+            add_line(a0,p[0])
+            add_line(a1,p[1])
+            add_line(a2,p[2])
+            add_line(a3,p[3])
+
             left_offset.append(a)
             right_offset.append(b)
             i += 1
@@ -771,12 +794,14 @@ class Spline():
                  closed = False, 
                  name = "Spline", 
                  location = Vector((0,0,0)), 
+                 strokewidth = 0.01
                  ):
 
         self.beziers = list(beziers) # TODO: UGLY!
         self.closed = closed
         self.name = name
         self.location = location
+        self.strokewidth = strokewidth
         for bezier in self.beziers:
             # bezier.name = self.name + ':' + bezier.name # Not really useful now.
             bezier._t1 = 0
@@ -969,7 +994,7 @@ class Spline():
 
         # Each offset is really a Spline, so perhaps we should call
         # everything splines below.
-        first_bezier = self.beziers[0]
+        first_bezier = self.beziers[0] # TODO: This assumes that there are only one Bez? 
         first_bezier.offset_curve(d)
         left_curves = [first_bezier.left_offset]
         right_curves = [first_bezier.right_offset]
@@ -978,7 +1003,8 @@ class Spline():
             # left_curves.append(bez.left_offset)
             # right_curves.append(bez.right_offset)
             
-
+        # TODO: Move the different cases to separate functions.
+        # That will probably make it look nicer. 
         if stroke_linejoin == 'bevel':
             for bez in self.beziers[1:]:
                 bez.offset_curve(d)
@@ -1038,16 +1064,16 @@ class Spline():
 
     def stroke(self):
         # TODO:
-        # self.endcap: [x] butt, [x] round, [x] square
+        # self.endcap: butt [x] , round [x], square [x]
         # initial butt
         # self.stroke-linejoin: miter, round, bevel
         # initial miter
         # stroke-miterlimit 
         # inital 4
         # self.strokewidth
-        strokewidth = .1
         # endcap = "butt"
         # endcap = "square"
+        strokewidth = self.strokewidth
         endcap = "round"
         stroke_linejoin = "miter"
         stroke_miterlimit = .1
@@ -1166,8 +1192,9 @@ class Spline():
 
 class Curve():
     """Curve object, container class for splines."""
-    def __init__(self, *splines, name="Curve"):
-        self.splines = splines
+
+    def __init__(self, *splines, name="Curve", location=Vector((0,0,0))):
+        self.splines = list(splines)
         self.name = name
         self.location = location 
 
