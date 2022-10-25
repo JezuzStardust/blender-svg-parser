@@ -40,7 +40,7 @@ class SVGGeometryContainer extends SVGGeometry{
 
 class SVGGeometrySVG extends SVGGeometryContainer
 {
-_viewbox
+_viewBox
 _preserveAspectRatio
 __init__()
 parse()
