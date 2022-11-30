@@ -44,6 +44,8 @@ _preserveAspectRatio
 __init__()
 parse()
 create_blender_splines() 
+get_viewport()
+set_viewport(viewport) 
 _view_to_transform() 
 --Attributes--
 id, class, style
@@ -63,15 +65,7 @@ _push_viewBox(viewBox)
 _pop_viewBox(viewBox)
 _calculate_viewBox_from_viewport() 
 }
-note left: Might be reasonable to keep\nall this in SVGGeometrySVG.
-
-class SVGViewportMixin
-{
-_viewport
-_parse_viewport()
-get_viewport()
-set_viewport(viewport) 
-}
+note left: Might be reasonalbe to keep\nall this in SVGGeometrySVG.
 
 class SVGGeometryG extends SVGGeometryContainer
 {
