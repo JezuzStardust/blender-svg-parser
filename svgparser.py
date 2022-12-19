@@ -117,9 +117,10 @@ class SVGGeometry:
         self._viewport = None
         # TODO: Should all these really be here?
         # - viewport only in SVG and USE but this is the only common parent.
-        # Add extra class and subclass that? SVGGeometryViewPort(SVGGeometry)?
-        # - preserveAspectRatio only in SVG
-        # - viewBox and transform in all except for SVG.
+        # Add extra class and subclass that? SVGGeometryViewport(SVGGeometry)?
+        # Then use this for SVGGeometryContainer(SVGGeometryViewport) and 
+        # SVGGEometryUSE(SVGGeometryViewport)
+        # However, not all CONTAINERS, e.g., group, has a viewport. 
         self._name = None
 
     def parse(self):
@@ -129,9 +130,6 @@ class SVGGeometry:
         but _parse_transform checks if these attributes actually exists.
         """
         if type(self._node) is xml.dom.minidom.Element:
-            # TODO: These could be done with side-effects instead. 
-            # In that case they should be renamed. 
-            # E.g., _parse_style_and_store or similar.
             self._style = self._parse_style()
             self._transform = self._parse_transform()
             # If the node has an id or class store reference to the instance
@@ -139,10 +137,11 @@ class SVGGeometry:
             for attr in ("id", "class"):
                 id_or_class = self._node.getAttribute(attr)
                 if id_or_class:
+                    print("SVGGeometry parse id_or_class: ", id_or_class)
                     # For elements with both: keep only id.
                     if self._context["defs"].get("#" + id_or_class) is None:
                         self._context["defs"]["#" + id_or_class] = self
-                    if not self._name:
+                    if not self._name: # Why this if? Can we accidentally overwrite names?
                         self._name = id_or_class
 
     def _parse_style(self):
@@ -196,6 +195,9 @@ class SVGGeometry:
         # TODO: Only SVG and USE can establish viewport,
         # We could do multiple inheritance but that 
         # could get messy I think.  
+        # We could potentially move this to a new subclass of SVGGeometry, e.g., 
+        # SVGGeometryViewport(SVGGeometry) and then hav CONTAINER and USE inherit from them. 
+        # However, not all container classes (e.g., group) needs this. 
         # See also __init__ for alternative. 
         vp_x = self._node.getAttribute("x") or "0"
         vp_y = self._node.getAttribute("y") or "0"
@@ -431,6 +433,7 @@ class SVGGeometryContainer(SVGGeometry):
         """Initializes and parses all the children elements and add them
         to _geometries. 
         """
+        print("SVGGeometryContainer parse called")
         super().parse() # Parse style and transform of the container. 
         for node in self._node.childNodes:
             if type(node) is not xml.dom.minidom.Element:
@@ -497,9 +500,10 @@ class SVGGeometrySVG(SVGGeometryContainer):
 
     def parse(self):
         """Parse the attributes of the SVG element.
-        The viewport (x, y, width, height) cannot actually be parsed at this time
-        since they require knowledge of the ancestor viewBox in case the values
+        The viewport (x, y, width, height) cannot actually be calculate at this time
+        since they require knowledge of the ancestor/parent viewBox in case the values
         are given in percentages.
+        This method simply read the values and units of the element in the svg-file.
         """
         # _parse_viewport is used both by this and USE. 
         # The function is therefore in the base class.
@@ -523,6 +527,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
         if not viewBox:
             viewBox = self._calculate_viewBox_from_viewport()
         self._push_viewBox(viewBox)
+
         super().create_blender_splines()
         self._pop_viewBox()
         self._pop_transform(self._transform)
@@ -1656,7 +1661,8 @@ class SVGGeometryDEFS(SVGGeometryContainer):
     """
     Handles the <defs> element.
     """
-    # TODO: This is wrong. It should not render directly.
+    # TODO: This is wrong. It should not render directly? Or is it?
+    # TODO: Test if this renders directly. I do not think so!
 
     pass
 
@@ -1682,12 +1688,13 @@ class SVGGeometryUSE(SVGGeometry):
         vp_height = self._node.getAttribute("height") or None
         self._viewport = (vp_x, vp_y, vp_width, vp_height)
 
-        self._href = self._node.getAttribute("xlink:href")
+        self._href = self._node.getAttribute("href") or self._node.getAttribute("xlink:href")
 
     def create_blender_splines(self):
         """
         Create Blender curves objects for the referenced element.
         """
+        print(self._context["defs"])
         # Get the current viewBox.
         # Parse the coords with respect to the width and height of the vB.
         # Then add a translation corresponding to the placement attributes x, y.
@@ -1705,7 +1712,9 @@ class SVGGeometryUSE(SVGGeometry):
         geom = self._context["defs"].get(self._href)
 
         # See: https://www.w3.org/TR/SVG11/struct.html#UseElement
+        # Updated for SVG2.0 now. 
         if geom is not None:
+            print("Using geom: ", geom.__class__)
             geom_class = geom.__class__
             # If the referenced element is an SVG or a SYMBOL element...
             if geom_class == SVGGeometrySVG:
@@ -1721,12 +1730,23 @@ class SVGGeometryUSE(SVGGeometry):
                 # Reset the old viewport in case geom is referenced again later.
                 geom.set_viewport(old_viewport)
             elif geom_class == SVGGeometrySYMBOL:
+                # TODO: With SVG2.0 this does exactly the same thing as 
+                # for SVGGeometrySVG. Combine these to one.
+                # In case we want to allow for both standards, then 
+                # figure out how to determine the standard of the file
+                # and use that as a switch to correct the value. 
                 old_viewport = geom.get_viewport()
-                width = self._viewport[2] or "100%"
-                height = self._viewport[3] or "100%"
+                print("Old viewport", old_viewport)
+                # Override the values of the SYMBOLS viewport?
+                # width = self._viewport[2] or "100%"
+                # height = self._viewport[3] or "100%"
+                width = self._viewport[2] or old_viewport[2]
+                height = self._viewport[3] or old_viewport[3]
                 geom.set_viewport(
                     (old_viewport[0], old_viewport[1], width, height))
+                print("New vieport again: ", (old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
+                print("New viewport", geom._viewport)
                 geom.set_viewport(old_viewport)
             elif geom_class is SVGGeometryDEFS:  
                 # TODO: DEFS cannot be directly referenced by USE since they do not have id!
@@ -1763,7 +1783,6 @@ class SVGLoader(SVGGeometryContainer):
     """Parse an SVG file and creates curve objects in Blender."""
 
     # TODO: Fix so that do_colormanage is done as in the original plugin. 
-    
 
     def __init__(self, blender_context, svg_filepath, origin="TL", depth="0"):
         """Initialize the loader.
@@ -1792,6 +1811,7 @@ class SVGLoader(SVGGeometryContainer):
         The `depth` parameter can be read from, e.g., dvisvgm in case the SVG-file 
         is generated from a LaTeX source. 
         """
+        print("HEEEJ")
         svg_name = os.path.basename(svg_filepath)
         scene = blender_context.scene
         # TODO: Should an SVG-file really result in a new collection?
@@ -1804,7 +1824,10 @@ class SVGLoader(SVGGeometryContainer):
         node = xml.dom.minidom.parse(svg_filepath)
 
         # Translate from pixels (assuming 96 pixels/inches) to Blenders units (meters).
-        # 96 pixels/inch, 0.3048 meter/feet, 12 inches per feet.
+        # scale is the number of meters per pixel. 
+        # 96 pixels/inch, 0.3048 meter/feet, 12 inches/feet.
+        # 0.3048 meters/feet / (96 pixels/inch * 12 inches/feet)  
+        # 0.3048 / (96 * 12 ) meters/pixel  
         scale = 1 / 96 * 0.3048 / 12
         m = Matrix()
         m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))
