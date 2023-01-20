@@ -39,9 +39,8 @@ class SVGGeometryContainer extends SVGGeometry{
 
 class SVGGeometrySVG extends SVGGeometryContainer
 {
-__slots__
-_viewBox
 viewport
+_viewBox
 _preserveAspectRatio 
 --
 __init__()
@@ -185,18 +184,19 @@ x, y, width, height (viewport)
 
 class SVGGeometryDEFS extends SVGGeometryContainer
 {
---Attributes--
+--SVG Attributes--
 id, class, style
 }
 
 class SVGGeometryUSE extends SVGGeometry
 {
-_href
 viewport
+_href
+--
 parse()
 create_blender_splines()
 _parse_viewport()
---Attributes--
+--SVG Attributes--
 id, class, style
 x, y, width, height 
 height and width only
