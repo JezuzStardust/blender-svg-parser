@@ -27,7 +27,6 @@ class SVGGeometry {
 	_print_hierarchy(level=0)
 
 }
-/' note left: Hej '/
 class SVGGeometryContainer extends SVGGeometry{
 	_geometries
 	__init__(node, context)
@@ -40,38 +39,29 @@ class SVGGeometryContainer extends SVGGeometry{
 
 class SVGGeometrySVG extends SVGGeometryContainer
 {
-_preserveAspectRatio
+__slots__
+_viewBox
+viewport
+_preserveAspectRatio 
+--
 __init__()
 parse()
 create_blender_splines() 
 _view_to_transform() 
---Attributes--
+_part_viewport()
+_parse_viewBox()
+_parse_preserveAspectRatio
+_push_viewBox(viewBox)
+_pop_viewBox(viewBox)
+_calculate_viewBox_from_viewport() 
+--SVG Attributes--
 id, class, style
 viewBox
 preserveAspectRatio
 transform
 x, y, width, height (viewport)
 }
-SVGViewBoxMixin <|-- SVGGeometrySVG
 
-class SVGViewBoxMixin 
-{
---slots--
-_viewBox 
-_parse_viewBox()
-_push_viewBox(viewBox)
-_pop_viewBox(viewBox)
-_calculate_viewBox_from_viewport() 
-}
-note left: Might be reasonable to keep\nall this in SVGGeometrySVG.
-
-class SVGViewportMixin
-{
-_viewport
-_parse_viewport()
-get_viewport()
-set_viewport(viewport) 
-}
 
 class SVGGeometryG extends SVGGeometryContainer
 {
@@ -184,7 +174,7 @@ next_coord()
 
 class SVGGeometrySYMBOL extends SVGGeometrySVG
 {
---Attributes--
+--SVG Attributes--
 id, class, style
 preserveAspectRatio
 viewBox
@@ -199,23 +189,13 @@ class SVGGeometryDEFS extends SVGGeometryContainer
 id, class, style
 }
 
-class SVGViewportMixin
-{
-_viewport
-_parse_viewport()
---NOTES--
-Move all viewport related parsing here. 
-Need to think about how to calculate 
-correct tranformations in this case. j
-Only SVG, SYMOBL and USE have viewport. 
-Make this a mixin of SVG.
-}
-
 class SVGGeometryUSE extends SVGGeometry
 {
 _href
+viewport
 parse()
 create_blender_splines()
+_parse_viewport()
 --Attributes--
 id, class, style
 x, y, width, height 
