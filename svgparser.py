@@ -77,8 +77,8 @@
 # In the second pass over we also create the Blender spines and insert them into Blender. 
 
 import bpy
-from math import tan, sin, cos, acos, sqrt, pi # May not be needed later. Use numpy instead.
-from mathutils import Matrix, Vector  # May not be needed if numpy is used instead.
+from math import tan, sin, cos, acos, sqrt, pi
+from mathutils import Matrix, Vector
 import os
 # import numpy as np
 import xml.dom.minidom
@@ -219,9 +219,10 @@ class SVGGeometry:
             material = self._get_material_with_color(style["fill"])
             obj.data.materials.append(material)
 
-        # Test by translating the curves a bit in the z-direction for every layer. 
-        m = Matrix.Translation((0, 0, 0.000015))
-        self._push_transform(m)
+        # TODO: Come up with a good way of using this. 
+        #Test by translating the curves a bit in the z-direction for every layer. 
+        # m = Matrix.Translation((0, 0, 0.000015))
+        # self._push_transform(m)
 
         return obj.data
 
@@ -410,7 +411,6 @@ class SVGGeometryContainer(SVGGeometry):
         """Initializes and parses all the children elements and add them
         to _geometries. 
         """
-        print("SVGGeometryContainer parse called")
         super().parse() # Parse style and transform of the container. 
         for node in self._node.childNodes:
             if type(node) is not xml.dom.minidom.Element:
@@ -746,7 +746,7 @@ class SVGGeometryRECT(SVGGeometry):
         else:
             rounded = False
         # Approximation of elliptic curve for corner.
-        # Put the handles semi minor(or major) axis radius times
+        # Put the handles semi minor(or semi major) axis radius times
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
         factor_x = rx * (sqrt(7) - 1) / 3
@@ -828,6 +828,23 @@ class SVGGeometryRECT(SVGGeometry):
             # (coordinate, handle_left, handle_right)
             # If a handle is None, it means that it will be a straight line
             # (vector handle).
+            #                   o (HR8)                            o (HL3)
+            #                   .                                  .
+            #          (HL1)    . (P1)                       (P2)  .   (HR2)
+            #               o.....o------------------------------o.....o
+            #                   ./                                \.
+            #                   o (P8)                             o (P3) 
+            #                   |                                  |
+            #                   |                                  |
+            #                   o (P7)                             o (P4)
+            #                   .\                                /.
+            #         (HR6) o.....o------------------------------o.....o (HL5)
+            #                   . (P6)                       (P5)  .
+            #                   .                                  .
+            #                   o                                  o
+            #                   (HL7)                              (HR4)
+            #
+            # coords = [ ( (P1), (HL1), (HR1) ), ( (P2), (HL2), (HR2) ), ... ]
             coords = [
                 ((x + rx, y), (x + rx - factor_x, y), None),
                 ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
@@ -862,7 +879,6 @@ class SVGGeometryRECT(SVGGeometry):
     def _new_point(coordinate, handle_left=None, handle_right=None, in_type=None, out_type=None):
         """Not currently used."""
         # TODO: Remove this?
-
         return {
             "coordinates": coordinate,
             "handle_left": handle_right,
