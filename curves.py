@@ -282,6 +282,24 @@ class Bezier(CurveObject):
         denom = math.pow(self.derivative(t).length, 3 / 2)
         return (d[0] * sd[1] - sd[0] * d[1]) / denom
 
+    def area(self) -> float:
+        """Returns the (signed) area of the curve. 
+        Uses Green's theorem to do this, and the integral
+        is precalculated and expressed in terms of the points."""
+
+        # x0*(-2*y1 - y2 + 3*y3) + x1*(2*y0 - y2 - y3) + x2*(y0 + y1 - 2*y3) + x3*(-3*y0 + y1 + 2*y2)
+        p = self.points
+        
+        area = 3 / 20 * (
+                            p[0][0] * ( - 2 * p[1][1] - p[2][1] + 3 * p[3][1] ) 
+                            + p[1][0] * ( 2 * p[0][1] - p[2][1] - p[3][1] ) 
+                            + p[2][0] * ( p[0][1] + p[1][1] - 2 * p[3][1] )
+                            + p[3][0] * ( - 3 * p[0][1] + p[1][1] + 2 * p[2][1] )
+                        )
+
+        return area
+
+
     def aligned(self):
         """Returns the points of the corresponding aligned curve. 
         Aligned means: start point in origin, end point on x-axis. 
