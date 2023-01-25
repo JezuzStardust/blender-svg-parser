@@ -6,9 +6,9 @@ def solve_quadratic(a, b, c):
     Discards complex solutions. Avoids cancellation errors."""
     if a == 0:
         if b == 0:
-            return ()
+            return tuple()
         else: 
-            return (- c / b)
+            return tuple(- c / b)
     else: 
         d = b**2 - 4 * a * c
         if d > 0: 
@@ -17,9 +17,53 @@ def solve_quadratic(a, b, c):
             x2 = c / q
             return (x1 , x2) if x1 > x2 else (x2, x1)
         elif d == 0: 
-            return (- .5 * b / a)
+            return tuple(- .5 * b / a)
         else: # Complex solutions only.
-            return ()
+            return tuple()
+
+def solve_cubic(in_c0: float, in_c1: float, in_c2: float, in_c3: float): 
+    """Solve the cubic equation a*x**3 + b*x**2 + c*x + d = 0.
+    See: https://momentsingraphics.de/CubicRoots.html"""
+    # If in_c3 = 0, we really have a quadratic equation.
+    if in_c3 == 0: 
+        return list(solve_quadratic(in_c2, in_c1, in_c0))
+    c2 = in_c2 / ( 3 * in_c3)
+    c1 = in_c1 / ( 3 * in_c3)
+    c0 = in_c0 / in_c3
+    
+    # (d0, d1, d2) are called Delta in the article. 
+    d0 = -c2**2 + c1
+    d1 = -c1 * c2 + c0
+    d2 = c2 * c0 - c1**2
+    # d is called the discriminant.
+    d = 4 * d0 * d2 - d1**2
+    # de is called Depressed.x. Depressed.y = d0
+    de = -2 * c2 * d0 + d1
+    
+    if d < 0:
+        sq = math.sqrt(-.25 * d)
+        r = - .5 * de
+        t1 = math.cbrt(r + sq) + math.cbrt(r - sq)
+        return [t1 - c2]
+    elif d == 0: 
+        t1 = math.copysign(math.sqrt(-d0), de)
+        return [t1 - c2, - 2 * t1 - c2]
+    else:
+        th = math.atan2(math.sqrt(d), -de) / 3
+        # r0, r1, r2 is called "Root"
+        r0 = math.cos(th)
+        ss3 = math.sin(th) * math.sqrt(3) 
+        r1 = .5 * (-r0 + ss3)
+        r2 = .5 * (-r0 - ss3)
+        t = 2 * math.sqrt(-d0)
+        return [t * r0 - c2, t * r1 - c2, t * r2 - c2]
+
+def testing_cubic(a, b, c, d):
+    print("Input: ", sorted([a, b, c]))
+    c2 = - d * (a + b + c)
+    c1 = d * (a * b + a * c + b * c)
+    c0 = d * (- a * b * c)
+    print("Output: ", sorted(solve_cubic(c0, c1, c2, d)))
 
 
 def solve_quartic(a, b, c, d):
