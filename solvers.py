@@ -7,25 +7,38 @@ from typing import Union
 # TODO: Fix error handling for quartic, in case the refinement of the dominant root does not converge (related to the above).
 # TODO: Fix solve_quadratic so that it also returns the complex solutions.
 
-def solve_quadratic(a, b, c):
-    """Solve quadratic equation a * x**2 + b * x + c = 0.
-    Discards complex solutions. Avoids cancellation errors."""
-    if a == 0:
-        if b == 0:
-            return tuple()
-        else: 
-            return tuple(- c / b)
+def solve_quadratic(a: Union[float, complex], b: Union[float, complex]):
+    """Solves x**2 + a * x + b = 0. a and b can be complex numbers."""
+    
+    if isinstance(a, complex) or isinstance(b, complex):
+        gamma1 = - a / 2 + cmath.sqrt(a**2/4 - b)
+        gamma2 = - a / 2 - cmath.sqrt(a**2/4 - b)
+
+        if abs(gamma1) > abs(gamma2):
+            eta1 = gamma1
+        else:
+            eta1 = gamma2
+        x0 = eta1
+        x1 = b / eta1
     else: 
-        d = b**2 - 4 * a * c
-        if d > 0: 
-            q = -.5 * (b + math.copysign(math.sqrt(d) , b))
-            x1 = q / a
-            x2 = c / q
-            return (x1 , x2) if x1 > x2 else (x2, x1)
-        elif d == 0: 
-            return tuple(- .5 * b / a)
-        else: # Complex solutions only.
-            return tuple()
+        delta = a**2 - 4 * b
+        if delta < 0.0: 
+            x0 = - a / 2 + 1/2 * math.sqrt(-delta) * complex(0,1)
+            x1 = - a / 2 - 1/2 * math.sqrt(-delta) * complex(0,1)
+        else: 
+            if a >= 0.0:
+                etaM = - a / 2 - math.sqrt(delta) / 2 
+            else:
+                etaM = - a / 2 + math.sqrt(delta) / 2 
+            if etaM == 0.0:
+                etam = 0.0
+            else:
+                etam = b / etaM
+
+            x0 = etaM
+            x1 = etam
+
+    return [x0, x1]
 
 def solve_cubic(in_c0: float, in_c1: float, in_c2: float, in_c3: float): 
     """Solve the cubic equation a*x**3 + b*x**2 + c*x + d = 0.
@@ -109,8 +122,10 @@ def solve_quartic(a: float, b:float, c: float, d: float):
     l1, l2, l3, d2 = ldl_coefficients(a, b, c, d, phi)
     
     alpha1, beta1, alpha2, beta2 = calculate_alpha_beta(a, b, c, d, l1, l2, l3, d2, phi)
-
-    x0, x1, x2, x3 = solve_quad(alpha1, beta1, alpha2, beta2)
+    
+    x0, x1 = solve_quadratic(alpha1, beta1)
+    x2, x3 = solve_quadratic(alpha2, beta2)
+    # x0, x1, x2, x3 = solve_quad(alpha1, beta1, alpha2, beta2)
     
     if rescale_quartic: 
         x0 *= K_Q
@@ -329,61 +344,6 @@ def epsilon_q2(a: float, b: float, c: float, d: float,
         epsd = abs((beta1 * beta2 - d) / d)
     return epsa + epsb + epsc + epsd
 
-def solve_quad(alpha1: Union[float, complex], beta1: Union[float, complex], 
-               alpha2: Union[float, complex], beta2: Union[float, complex]):
-    """Solves the quadratic equations x**2 + alpha_i * x + beta_i = 0."""
-    if isinstance(alpha1, complex) or isinstance(beta1, complex) or isinstance(alpha2, complex) or isinstance(beta2, complex):
-        gamma11 = - alpha1 / 2 + cmath.sqrt(alpha1**2/4 - beta1)
-        gamma12 = - alpha1 / 2 - cmath.sqrt(alpha1**2/4 - beta1)
-        gamma21 = - alpha2 / 2 + cmath.sqrt(alpha2**2/4 - beta2)
-        gamma22 = - alpha2 / 2 - cmath.sqrt(alpha2**2/4 - beta2)
-
-        if abs(gamma11) > abs(gamma12):
-            eta1 = gamma11
-        else:
-            eta1 = gamma12
-        if abs(gamma21) > abs(gamma22):
-            eta2 = gamma21
-        else:
-            eta2 = gamma22
-        x0 = eta1
-        x1 = beta1 / eta1
-        x2 = eta2
-        x3 = beta2 / eta2
-    else: 
-        delta1 = alpha1**2 - 4 * beta1
-        delta2 = alpha2**2 - 4 * beta2
-        if delta1 < 0.0: 
-            x0 = - alpha1 / 2 + 1/2 * math.sqrt(-delta1) * complex(0,1)
-            x1 = - alpha1 / 2 - 1/2 * math.sqrt(-delta1) * complex(0,1)
-        else: 
-            if alpha1 >= 0.0:
-                etaM1 = - alpha1 / 2 - math.sqrt(delta1) / 2 
-            else:
-                etaM1 = - alpha1 / 2 + math.sqrt(delta1) / 2 
-            if etaM1 == 0.0:
-                etam1 = 0.0
-            else:
-                etam1 = beta1 / etaM1
-            x0 = etaM1
-            x1 = etam1
-        if delta2 < 0:
-            x2 = - alpha2 / 2 + 1/2 * math.sqrt(-delta2) * complex(0,1)
-            x3 = - alpha2 / 2 - 1/2 * math.sqrt(-delta2) * complex(0,1)
-        else:
-            if alpha2 >= 0.0:
-                etaM2 = - alpha2 / 2 - math.sqrt(delta2) / 2 
-            else:
-                etaM2 = - alpha2 / 2 + math.sqrt(delta2) / 2 
-            if etaM2 == 0.0:
-                etam2 = 0.0
-            else:
-                etam2 = beta2 / etaM2
-            x2 = etaM2
-            x3 = etam2 
-
-    return x0, x1, x2, x3
-
 def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
     """Returns the dominant root of the depressed cubic equation phi**3 + g phi + h = 0."""
 
@@ -500,13 +460,13 @@ def dominant_root_refine(phi: float, gp: float, hp: float):
         n += 1
     return phi
 
-def refine_alpha_beta(a: float , b: float, c: float, d: float, 
+def refine_alpha_beta(a: float, b: float, c: float, d: float, 
                       alpha1: Union[float, complex], beta1: Union[float, complex], 
                       alpha2: Union[float, complex], beta2: Union[float, complex]):
     """Refine the coefficients alpha1, beta1, alpha2, and beta2 using the Newton-Raphson method."""
 
     # Try 8 times (usually converges fast. 
-    for i in range(0,8):
+    for _ in range(0,8):
         z = [alpha1, beta1, alpha2, beta2]
         epsilon_t0 = epsilon_q2(a, b, c, d, *z)
         if epsilon_t0 == 0.0: 
