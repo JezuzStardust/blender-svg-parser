@@ -1,11 +1,6 @@
-import itertools 
 import math
 import cmath
 from typing import Union
-
-# TODO: Handle the re-scaling in case the input is very large or if the dominant root is not found.
-# TODO: Fix error handling for quartic, in case the refinement of the dominant root does not converge (related to the above).
-# TODO: Fix solve_quadratic so that it also returns the complex solutions.
 
 def solve_quadratic(a: Union[float, complex], b: Union[float, complex]):
     """Solves x**2 + a * x + b = 0. a and b can be complex numbers."""
@@ -90,6 +85,10 @@ def solve_quartic(a: float, b:float, c: float, d: float):
     The return value is a list of the solutions, including complex solutions.
     Note, if x + i * y is one solution, one of the other is always the complex 
     conjugate.
+    A direct implementation of the algorithm in the paper:
+    Alberto Giacomo Orellana and Cristiano De Michele. 2020. 
+    Algorithm 1010: Boosting Efficiency in Solving Quartic Equations with No Compromise in Accuracy. 
+    ACM Trans. Math. Softw. 46, 2, Article 20 (June 2020), 28 pages. https://doi.org/10.1145/3386241
     """
     # coefficients = [a, b, c, d]
     solutions: list[Union[float, complex]] = []
@@ -432,12 +431,7 @@ def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
 
 def dominant_root_refine(phi: float, gp: float, hp: float):
     """Refine the dominant root using Newton-Raphson."""
-    # If not terminated, the calculation must have Overflown.
-    # raise ValueError("Refinement did not converge fast enough.")
-    # TODO: If this blows up, we need to do something. 
-    # TODO: Add the two things below for testing.
-    # except OverflowError: x = float('inf')
-    # except DomainError: x = float('NaN') 
+    # TODO: Should check for nan and inf. 
     EPSILON_M = 2.22045e-16
     x = phi
     f = (x**2 + gp) * x + hp
