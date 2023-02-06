@@ -1,5 +1,11 @@
 import itertools 
 import math
+import cmath
+from typing import Union
+
+# TODO: Handle the re-scaling in case the input is very large or if the dominant root is not found.
+# TODO: Fix error handling for quartic, in case the refinement of the dominant root does not converge (related to the above).
+# TODO: Fix solve_quadratic so that it also returns the complex solutions.
 
 def solve_quadratic(a, b, c):
     """Solve quadratic equation a * x**2 + b * x + c = 0.
@@ -65,15 +71,118 @@ def testing_cubic(a, b, c, d):
     c0 = d * (- a * b * c)
     print("Output: ", sorted(solve_cubic(c0, c1, c2, d)))
 
+def solve_quartic(a: float, b:float, c: float, d: float): 
+    """Solves the quartic equation x**4 + a * x**3 + b * x**2 + c * x + d = 0.
+    a, b, c, and d are floats (and hence real numbers). 
+    The return value is a list of the solutions, including complex solutions.
+    Note, if x + i * y is one solution, one of the other is always the complex 
+    conjugate.
+    """
+    """
+    Try first unscaled. 
+    1. Solve for phi by solving the dominant root.  
+    2. Refine the solution using the Newton-Raphson method.
+    3. If that succeeds, calculate d1 = 1, d2, d3, and l1, l2, and l3.
+    4. Use these to calculate alpha1, beta1, alpha2, beta2. There are three cases depending on 
+    the value of d2. 
+    5. Refine alpha1, beta1, alpha2, beta2 using the Newton-Raphson method. 
+    6. Solve the two quadratic equations to get the two solutions.  
 
-def solve_quartic(a: float, b: float, c: float, d: float, rescale = False):
-    """Solves the quartic equation x**4 + a * x**3 + b * x**2 + c * x + d = 0."""
-    # TODO: Move error handling to a wrapper function.
-    # try:
-    #     phi = dominant_root(a, b, c, d)
-    # except OverflowError or ValueError:
-    #     return solve_quartic(a, b, c, d, True)
-    phi = dominant_root(a, b, c, d)
+    If one fails, the first rescale the coefficients of the quadratic equation
+    and then do all of the steps above. Finally, scale back the solutions 
+
+    If that also fails, then instead try to rescale the cubic equation. 
+
+    If also that fails, then this algorithm cannot handle the specific input. 
+    rescale_quartic = False
+    phi = None
+    try:
+        phi = dominant_root(a, b, c, d, rescale=False)
+        phi = dominant_root_refine(a, b, c, d)
+    except OverflowError:
+        print("Overflow Error, will try to rescale the quartic equation.")
+    if not phi: 
+        rescale_quartic = True
+        a0 = a / k...
+        b0 = b / ...
+        try: 
+            phi = dominant_root(a0, b0, c0, d0, rescale=False) # Should call refine?
+            phi = dominant_root_refine(a, b, c, d)
+        except OverflowError: 
+            print("Still overflowing. Will try to rescale the equation for the dominant cubic solution.")
+    if not phi:
+        rescale_quartic = False
+        try: 
+            phi = dominant_root(a, b, c, d, rescale=True)
+            phi = dominant_root_refine(a, b, c, d)
+        except OverflowError:
+            print("Overflow again. No solutions found.")
+            return []
+
+    l1, l2, l3, d1 = 1, d2, d3 = ldl_coefficients(a, b, c, d, phi)  
+
+    alpha1, beta1, alpha2, beta2 = calculate_alpha_beta(a, b, c, d, l1, l2, l3, d1, d2, d3) # Should call refine alphas and betas?
+
+    alpha1, beta1, alpha2, beta2 = refine_alpha_beta(a, b, c, d, alpha1, beta1, alpha2, beta2)
+
+    x0, x1 = solve_qubic(alpha1, beta1)
+    x3, x4 = solve_qubic(alpha2, beta2)
+    
+    if rescale_quartic:
+        x0 = ...
+        x1 = x1 ... 
+        ...
+
+    return [x0, x1, x2, x3]
+    """
+    coefficients = [a, b, c, d]
+    solutions: list[float] = []
+    rescale_quartic = False
+    phi = None
+    try: 
+        phi = dominant_root(*coefficients, rescale = False)
+    except OverflowError: 
+        print("Overflow error. Will try to rescale the quartic equation.")
+    
+    K_Q = 7.16e76
+    if phi is None: 
+        rescale_quartic = True
+        print("Rescaling")
+        a = a / K_Q
+        b = b / K_Q**2
+        c = c / K_Q**3
+        d = d / K_Q**4
+        try: 
+            phi = dominant_root(*coefficients, rescale = False)
+        except OverflowError:
+            print("Still overflowing. Will try to rescale also the cubic equation.")
+
+    if phi is None:
+        try:
+            phi = dominant_root(a, b, c, d, rescale = True)
+        except OverflowError:
+            print("No solutions found.")
+            return solutions
+        
+    l1, l2, l3, d2 = ldl_coefficients(a, b, c, d, phi)
+    
+    alpha1, beta1, alpha2, beta2 = calculate_alpha_beta(a, b, c, d, l1, l2, l3, d2, phi)
+
+    print('alpha beta', alpha1, beta1, alpha2, beta2)
+    x0, x1, x2, x3 = solve_quad(alpha1, beta1, alpha2, beta2)
+    
+    if rescale_quartic: 
+        x0 *= K_Q
+        x1 *= K_Q
+        x2 *= K_Q
+        x3 *= K_Q
+
+    solutions = [x0, x1, x2, x3]
+    return solutions
+
+def ldl_coefficients(a: float, b: float, c: float, d: float, phi: float):
+    """Calculates the coefficients l1, l2, l3, d2, d3 that are used to factor
+    the quartic equation into two quadratic equations."""
     l1 = a / 2
     l3 = (b + 3 * phi) / 6
     delta_2 = c - a * l3
@@ -91,20 +200,39 @@ def solve_quartic(a: float, b: float, c: float, d: float, rescale = False):
         l23 = l22
         # d23 = d21 = 2 * b / 3 - phi - l1**2 
         pairs.append((d21, l23))
-
+    if len(pairs) > 0:
     # Find the best pairs.
-    cur_best = None
-    best = 0
-    for i, pair in enumerate(pairs): 
-        e = epsilon_l(b, c, l1, l3, d, pair[0], pair[1])
-        if cur_best is None or e < cur_best:
-            cur_best = e
-            best = i
-    d2, l2 = pairs[best]
+        cur_best = None
+        best = 0
+        for i, pair in enumerate(pairs): 
+            e = epsilon_l(b, c, l1, l3, d, pair[0], pair[1])
+            if cur_best is None or e < cur_best:
+                cur_best = e
+                best = i
+        d2, l2 = pairs[best]
+    else: 
+        d2 = 0.0
+        l2 = 0.0
+
+    # TODO: You are here!
+    return [l1, l2, l3, d2] 
+
+def calculate_alpha_beta(a: float, b: float, c: float, d: float, l1: float, l2: float, l3: float, d2: float, phi: float):
+    """Calculates alpha1,  beta1, alpha2, beta2 which are the coefficients of the two quadratic equations."""
+
+    # We set them all to zero to stop pyright from complaining that they might be unbound. 
+    # They will not be, but I just got annoyed.
+    alpha1 = 0.0
+    alpha2 = 0.0
+    beta1 = 0.0
+    beta2 = 0.0
+    candidates = []
 
     #Three different cases d2 < 0 done, d2 > 0, d2 == 0
-    EPSILON_M = 2.22045e-16
-    candidates = []
+    # In case d2 non-zero but close to zero, we are not sure, so in that case
+    # we calculate both the cases where d2 = 0, and d2 > 0 or d2 < 0 (depending on the sign.
+    # We finally check which alpha1, beta1, alpha2, beta2 are closest to the exact results.
+    EPSILON_M = 2.22045e-16 # Suitable for double precision (which is what Python uses).
     if d2 == 0 or abs(d2) <= EPSILON_M * max(abs(2 * b / 3), abs(phi), l1**2):
         print("Complex case.")
         alpha1, beta1, alpha2, beta2 = case3(l1, l3, d)
@@ -126,30 +254,104 @@ def solve_quartic(a: float, b: float, c: float, d: float, rescale = False):
         else:
             alpha1, beta1, alpha2, beta2 = candidates[1]
 
-    # TODO: Fix the complaint that beta1 might be undbound.
+    alpha1, beta1, alpha2, beta2 = refine_alpha_beta(a, b, c, d, alpha1, beta1, alpha2, beta2)
+
+    return [alpha1, beta1, alpha2, beta2]
+
+def solve_quartic_old(a: float, b: float, c: float, d: float, rescale = False):
+    """Solves the quartic equation x**4 + a * x**3 + b * x**2 + c * x + d = 0."""
+    # TODO: Move error handling to a wrapper function.
+    # try:
+    #     phi = dominant_root(a, b, c, d)
+    # except OverflowError or ValueError:
+    #     return solve_quartic(a, b, c, d, True)
+    phi = dominant_root(a, b, c, d, rescale = False)
+    l1 = a / 2
+    l3 = (b + 3 * phi) / 6
+    delta_2 = c - a * l3
+    # Pairs of candidate d2 and l2
+    pairs = []
+    d21 = 2 * b / 3 - phi - l1**2
+    if d21 != 0:
+        l21 = delta_2 / (2 * d21)
+        pairs.append((d21, l21))
+    if delta_2 != 0: 
+        l22 = 2 * (d - l3**2) / delta_2
+        if l22 != 0:
+            d22 = delta_2 / (2 * l22)
+            pairs.append((d22, l22))
+        l23 = l22
+        # d23 = d21 = 2 * b / 3 - phi - l1**2 
+        pairs.append((d21, l23))
+    if len(pairs) > 0:
+    # Find the best pairs.
+        cur_best = None
+        best = 0
+        for i, pair in enumerate(pairs): 
+            e = epsilon_l(b, c, l1, l3, d, pair[0], pair[1])
+            if cur_best is None or e < cur_best:
+                cur_best = e
+                best = i
+        d2, l2 = pairs[best]
+    else: 
+        d2 = 0.0
+        l2 = 0.0
+
+    # Start find alphas and betas.
+    alpha1 = 0.0
+    beta1 = 0.0
+    alpha2 = 0.0
+    beta2 = 0.0
+    #Three different cases d2 < 0 done, d2 > 0, d2 == 0
+    EPSILON_M = 2.22045e-16
+    candidates = []
+
+    # In case d2 non-zero but close to zero, we are not sure, so in that case
+    # we calculate both the cases where d2 = 0, and d2 > 0 or d2 < 0 (depending on the sign.
+    # We finally check which alpha1, beta1, alpha2, beta2 are closest to the exact results.
+    if d2 == 0 or abs(d2) <= EPSILON_M * max(abs(2 * b / 3), abs(phi), l1**2):
+        print("Complex case.")
+        alpha1, beta1, alpha2, beta2 = case3(l1, l3, d)
+        candidates.append((alpha1, beta1, alpha2, beta2))
+
+    if d2 < 0: 
+        alpha1, beta1, alpha2, beta2 = case1(a, b, c, d, l1, l2, l3, d2)
+        candidates.append((alpha1, beta1, alpha2, beta2))
+    elif d2 > 0:
+        alpha1, beta1, alpha2, beta2 = case2(l1, l2, l3, d2)
+        candidates.append((alpha1, beta1, alpha2, beta2))
+    
+    if len(candidates) == 2:
+        # TODO: Move this to epsilon_q2
+        val1 = epsilon_q2(a, b, c, d, *candidates[0])
+        val2 = epsilon_q2(a, b, c, d, *candidates[1])
+        if val1 < val2:
+            alpha1, beta1, alpha2, beta2 = candidates[0]
+        else:
+            alpha1, beta1, alpha2, beta2 = candidates[1]
+    alpha1, beta1, alpha2, beta2 = refine_alpha_beta(a, b, c, d, alpha1, beta1, alpha2, beta2)
     solutions = solve_quad(alpha1, beta1, alpha2, beta2)
-    print("SOL: ", solutions)
     return solutions
-    # TODO: We have now found the coefficients of the equivalent second degree equations p1(x) and p2(x).
-    # We must now refine the coefficients. 
 
 def case1(a, b, c, d, l1, l2, l3, d2):
+    """Calculates alpha1, beta1, alpha2, beta2 in the case where d2 < 0."""
+    print("Case 1")
     alpha1 = l1 + math.sqrt(-d2)
     beta1 = l3 + math.sqrt(-d2) * l2
     alpha2 = l1 - math.sqrt(-d2)
     beta2 = l3 - math.sqrt(-d2) * l2
-
-    if abs(beta2) <= abs(beta1): 
+    if abs(beta2) < abs(beta1): 
         beta2 = d / beta1
-    else:
+    elif abs(beta2) > abs(beta1):
         beta1 = d / beta2 
-   
+
+    # Find best alpha1 and alpha2
     if abs(alpha1) <= abs(alpha2): # Trust alpha2 and find the best alpha1.
         cands = []
-        if beta2 != 0:
+        if beta2 != 0.0:
             alpha11 = (c - beta1 * alpha2) / beta2
             cands.append(alpha11)
-        if alpha2 != 0:
+        if alpha2 != 0.0:
             alpha12 = (b - beta2 - beta1) / alpha2
             cands.append(alpha12)
         alpha13 = a - alpha2 
@@ -163,13 +365,12 @@ def case1(a, b, c, d, l1, l2, l3, d2):
                 cur_best = e
                 best = i
             alpha1 = cands[best]
-
     else: # Trust alpha1 and find the best alpha2.
         cands = []
-        if beta1 != 0:
+        if beta1 != 0.0:
             alpha21 = (c - alpha1 * beta2) / beta1
             cands.append(alpha21)
-        if alpha1 != 0:
+        if alpha1 != 0.0:
             alpha22 = (b - beta2 - beta1) / alpha1 
             cands.append(alpha22)
         alpha23 = a - alpha1
@@ -187,6 +388,8 @@ def case1(a, b, c, d, l1, l2, l3, d2):
     return alpha1, beta1, alpha2, beta2
 
 def case2(l1, l2, l3, d2):
+    """Calculates alpha1, beta1, alpha2, and beta2 in the case where d2 > 0."""
+    print("Case 2")
     alpha1 = l1 + complex(0,1) * math.sqrt(d2)
     beta1 = l3 + complex(0,1) * math.sqrt(d2) * l2 
     alpha2 = l1 - complex(0,1) * math.sqrt(d2)
@@ -194,6 +397,7 @@ def case2(l1, l2, l3, d2):
     return alpha1, beta1, alpha2, beta2 
 
 def case3(l1, l3, d):
+    """Calculates alpha1, beta1, alpha2, and beta2 in the case where d2 = 0 (or close to 0)."""
     d3 = d - l3**2
     alpha1 = l1
     beta1 = l3 + math.sqrt(-d3)
@@ -223,7 +427,9 @@ def epsilon_l(b: float, c: float, l1: float, l3: float, d: float, d2: float, l2:
 
     return eps0 + eps1 + eps2
 
-def epsilon_q(a, b, c, alpha1, beta1, alpha2, beta2):
+def epsilon_q(a: float, b: float, c: float, 
+              alpha1: Union[float, complex], beta1: Union[float, complex], 
+              alpha2: Union[float, complex], beta2: Union[float, complex]):
     if a == 0:
         epsa = abs(alpha1 + alpha2)
     else:
@@ -239,7 +445,9 @@ def epsilon_q(a, b, c, alpha1, beta1, alpha2, beta2):
 
     return epsa + epsb + epsc 
 
-def epsilon_q2(a, b, c, d, alpha1, beta1, alpha2, beta2):
+def epsilon_q2(a: float, b: float, c: float, d: float, 
+               alpha1: Union[float, complex], beta1: Union[float, complex], 
+               alpha2: Union[float, complex], beta2: Union[float, complex]):
     if a == 0:
         epsa = abs(alpha1 + alpha2)
     else:
@@ -258,42 +466,59 @@ def epsilon_q2(a, b, c, d, alpha1, beta1, alpha2, beta2):
         epsd = abs((beta1 * beta2 - d) / d)
     return epsa + epsb + epsc + epsd
 
-def solve_quad(alpha1, beta1, alpha2, beta2):
-    # if isntance(a, complex) for a in (alpha1, beta1, alpha2, beta2):
-    #     pass
-    # else:
-    # TODO: This is for real alpha, beta.
-    # Add case for complex alpha, beta.
-    delta1 = alpha1**2 - 4 * beta1
-    delta2 = alpha2**2 - 4 * beta2
-    if delta1 < 0: 
-        x0 = - alpha1 / 2 + 1/2 * math.sqrt(-delta1) * complex(0,1)
-        x1 = - alpha1 / 2 - 1/2 * math.sqrt(-delta1) * complex(0,1)
+def solve_quad(alpha1: Union[float, complex], beta1: Union[float, complex], 
+               alpha2: Union[float, complex], beta2: Union[float, complex]):
+    """Solves the quadratic equations x**2 + alpha_i * x + beta_i = 0."""
+    if isinstance(alpha1, complex) or isinstance(beta1, complex) or isinstance(alpha2, complex) or isinstance(beta2, complex):
+        gamma11 = - alpha1 / 2 + cmath.sqrt(alpha1**2/4 - beta1)
+        gamma12 = - alpha1 / 2 - cmath.sqrt(alpha1**2/4 - beta1)
+        gamma21 = - alpha2 / 2 + cmath.sqrt(alpha2**2/4 - beta2)
+        gamma22 = - alpha2 / 2 - cmath.sqrt(alpha2**2/4 - beta2)
+
+        if abs(gamma11) > abs(gamma12):
+            eta1 = gamma11
+        else:
+            eta1 = gamma12
+        if abs(gamma21) > abs(gamma22):
+            eta2 = gamma21
+        else:
+            eta2 = gamma22
+        x0 = eta1
+        x1 = beta1 / eta1
+        x2 = eta2
+        x3 = beta2 / eta2
     else: 
-        if alpha1 >= 0:
-            etaM1 = - alpha1 / 2 - math.sqrt(delta1) / 2 
+        delta1 = alpha1**2 - 4 * beta1
+        delta2 = alpha2**2 - 4 * beta2
+        if delta1 < 0.0: 
+            x0 = - alpha1 / 2 + 1/2 * math.sqrt(-delta1) * complex(0,1)
+            x1 = - alpha1 / 2 - 1/2 * math.sqrt(-delta1) * complex(0,1)
+        else: 
+            if alpha1 >= 0.0:
+                etaM1 = - alpha1 / 2 - math.sqrt(delta1) / 2 
+            else:
+                etaM1 = - alpha1 / 2 + math.sqrt(delta1) / 2 
+            if etaM1 == 0.0:
+                etam1 = 0.0
+            else:
+                etam1 = beta1 / etaM1
+            x0 = etaM1
+            x1 = etam1
+        if delta2 < 0:
+            x2 = - alpha2 / 2 + 1/2 * math.sqrt(-delta2) * complex(0,1)
+            x3 = - alpha2 / 2 - 1/2 * math.sqrt(-delta2) * complex(0,1)
         else:
-            etaM1 = - alpha1 / 2 + math.sqrt(delta1) / 2 
-        if etaM1 == 0:
-            etam1 = 0
-        else:
-            etam1 = beta1 / etaM1
-        x0 = etaM1
-        x1 = etam1
-    if delta2 < 0:
-        x2 = - alpha2 / 2 + 1/2 * math.sqrt(-delta2) * complex(0,1)
-        x3 = - alpha2 / 2 - 1/2 * math.sqrt(-delta2) * complex(0,1)
-    else:
-        if alpha2 >= 0:
-            etaM2 = - alpha2 / 2 - math.sqrt(delta2) / 2 
-        else:
-            etaM2 = - alpha2 / 2 + math.sqrt(delta2) / 2 
-        if etaM2 == 0:
-            etam2 = 0
-        else:
-            etam2 = beta2 / etaM2
-        x2 = etaM2
-        x3 = etam2 
+            if alpha2 >= 0.0:
+                etaM2 = - alpha2 / 2 - math.sqrt(delta2) / 2 
+            else:
+                etaM2 = - alpha2 / 2 + math.sqrt(delta2) / 2 
+            if etaM2 == 0.0:
+                etam2 = 0.0
+            else:
+                etam2 = beta2 / etaM2
+            x2 = etaM2
+            x3 = etam2 
+
     return x0, x1, x2, x3
 
 def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
@@ -306,7 +531,7 @@ def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
     # All this code can actually go into the cubic solver, not here
 
     # Determine s so that b'(s) = 0, or db'/ds = 0. 
-    if 9 * a**2 - 24 * b >= 0:
+    if 9 * a**2 - 24 * b > 0:
         s = - 2 * b / (3 * a + math.copysign(1,a) * math.sqrt(9 * a**2 - 24 * b))
     else:
         s = - a / 4
@@ -364,7 +589,6 @@ def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
     # Cases where Q and R are not too large.  
     else:
         if R**2 < Q**3:
-            print("R2 > Q3")
             theta = math.acos( R / math.sqrt(Q**3))
             if theta < math.pi / 2:
                 phi = - 2 * math.sqrt(Q) * math.cos(theta / 3)
@@ -386,18 +610,23 @@ def dominant_root(a: float, b: float, c: float, d: float, rescale = False):
 
 def dominant_root_refine(phi: float, gp: float, hp: float):
     """Refine the dominant root using Newton-Raphson."""
+    # If not terminated, the calculation must have Overflown.
+    # raise ValueError("Refinement did not converge fast enough.")
+    # TODO: If this blows up, we need to do something. 
+    # TODO: Add the two things below for testing.
+    # except OverflowError: x = float('inf')
+    # except DomainError: x = float('NaN') 
     EPSILON_M = 2.22045e-16
     x = phi
     f = (x**2 + gp) * x + hp
 
     if abs(f) < EPSILON_M * max(abs(x**3), abs(gp * x), abs(hp)):
-        print("Already good.")
         return x
     n = 0
     while(n < 1000):
         df = 3 * x**2 + gp 
         if df == 0.0:
-            print("Already good 2.")
+            # print("Already good 2.")
             return x 
 
         x0 = x
@@ -412,11 +641,89 @@ def dominant_root_refine(phi: float, gp: float, hp: float):
             return x0
         n += 1
     return phi
-    # If not terminated, the calculation must have Overflown.
-    # raise ValueError("Refinement did not converge fast enough.")
-    # TODO: If this blows up, we need to do something. 
-    # TODO: Add the two things below for testing.
-    # except OverflowError: x = float('inf')
-    # except DomainError: x = float('NaN') 
 
-    print(a, b, c)
+def refine_alpha_beta(a: float , b: float, c: float, d: float, 
+                      alpha1: Union[float, complex], beta1: Union[float, complex], 
+                      alpha2: Union[float, complex], beta2: Union[float, complex]):
+    """Refine the coefficients alpha1, beta1, alpha2, and beta2 using the Newton-Raphson method."""
+
+    # Try 8 times (usually converges fast. 
+    for i in range(0,8):
+        z = [alpha1, beta1, alpha2, beta2]
+        epsilon_t0 = epsilon_q2(a, b, c, d, *z)
+        if epsilon_t0 == 0.0: 
+            print("Returned directly", i)
+            return z
+        detJ = beta1**2 - beta1 * (alpha2 * (alpha1 - alpha2) + 2 * beta2) + beta2 * (alpha1 * (alpha1 - alpha2) + beta2)
+        if detJ == 0.0:
+            print("Returned again directly", i)
+            return z
+        z0 = z
+        C1 = alpha1 - alpha2
+        C2 = beta2 - beta1
+        C3 = beta1 * alpha2 - alpha1 * beta2 
+        F1 = beta1 * beta2 - d
+        F2 = beta1 * alpha2 + alpha1 * beta2 - c
+        F3 = beta1 + alpha1 * alpha2 + beta2 - b
+        F4 = alpha1 + alpha2 - a
+        JF1 = C1 * F1 + C2 * F2 + C3 * F3 - (beta1 * C2 + alpha1 * C3) * F4
+        JF2 = (alpha1 * C1 + C2) * F1 - beta1 * C1 * F2 - beta1 * C2 * F3 - beta1 * C3 * F4
+        JF3 = - C1 * F1 - C2 * F2 - C3 * F3 + (alpha2 * C3 + beta2 * C2) * F4
+        JF4 = (- alpha2 * C1 - C2) * F1 + beta2 * C1 * F2 + beta2 * C2 * F3 + beta2 * C3 * F4
+        print("JF", JF1, JF2, JF3, JF4)
+        z[0] -= JF1 / detJ
+        z[1] -= JF2 / detJ
+        z[2] -= JF3 / detJ
+        z[3] -= JF4 / detJ
+        if z == z0:
+            print("Returned after refining, no further changes.", i)
+            return z
+        epsilon_t1 = epsilon_q2(a, b, c, d, *z)
+        if epsilon_t1 == 0.0:
+            print("New error small.", i)
+            return z
+        if epsilon_t1 > epsilon_t0:
+            print("Going in the wrong direction!", i)
+            return z0
+    print("imr")
+    print(alpha1, beta1, alpha2, beta2)
+    return [alpha1, beta1, alpha2, beta2] 
+
+def vieta(x1, x2, x3, x4):
+    a = -(x1 + x2 + x3 + x4)
+    b = x1 * (x2 + x3) + x2 * (x3 + x4) + x4 * (x1 + x3)
+    c = -x1 * x2 * (x3 + x4) - x3 * x4 * (x1 + x2)
+    d = x1 * x2 * x3 * x4
+    roots = solve_quartic(a.real, b.real, c.real, d.real)
+    return roots
+
+def test(i):
+    roots = [[1e9, 1e6, 1e3, 2],
+             [2.003, 2.002, 2.001, 2],
+             [1e53, 1e50, 1e49, 1e47],
+             [1e14, 2.0, 1.0, -1.0],
+             [-2e7, 1e7, 1.0, -1.0],
+             [1e7, -1e6, complex(1.0, 1.0), complex(1.0, -1.0)],
+             [-7.0, -4.0, complex(-1e6, 1e5), complex(-1e6, -1e5)],
+             [1e8, 11.0, complex(1e3, 1), complex(1e3, -1)],
+             [complex(1e7, 1e6), complex(1e7, -1e6), complex(1, 2), complex(1, -2)],
+             [complex(1e4, 3), complex(1e4, -3), complex(-7, 1e3), complex(-7, -1e3)],
+             [complex(1.001, 4.998), complex(1.001, -4.998), complex(1.0, 5.001), complex(1.0, -5.001)],
+             [complex(1e3, 3), complex(1e3, -3), complex(1e3, 1), complex(1e3, -1)],
+             [complex(2, 1e4), complex(2, -1e4), complex(1, 1e3), complex(1, -1e3)],
+             [1000, 1000, 1000, 1000],
+             [1000, 1000, 1000, 1e-15],
+             [complex(1.0, 0.1), complex(1.0, -0.1), complex(1e16, 1e7), complex(1e16, -1e7)],
+             [10000, 10001, 10010, 10100],
+             [complex(40000, 300), complex(40000, -300), complex(30000, 7000), complex(30000, -7000)],
+             [1e44, 1e30, 1e30, 1],
+             [1e14, 1e7, 1e7, 1],
+             [1e15, 1e7, 1e7, 1],
+             [1e154, 1e152, 10, 1]
+             ]
+    print(sorted(vieta(*roots[i-1]), key=lambda x: x.real))
+    print(sorted(roots[i-1], key=lambda x: x.real))
+
+
+
+
