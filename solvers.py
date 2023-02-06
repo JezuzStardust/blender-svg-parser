@@ -1,3 +1,20 @@
+# Quartic, cubic and quadratic solvers implemented in Python.
+# Copyright (C) 2023 JezuzStardust https://github.com/JezuzStardust.
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation,
+#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
 import math
 import cmath
 from typing import Union
@@ -35,15 +52,14 @@ def solve_quadratic(a: Union[float, complex], b: Union[float, complex]):
 
     return [x0, x1]
 
-def solve_cubic(in_c0: float, in_c1: float, in_c2: float, in_c3: float): 
-    """Solve the cubic equation a*x**3 + b*x**2 + c*x + d = 0.
-    See: https://momentsingraphics.de/CubicRoots.html"""
-    # If in_c3 = 0, we really have a quadratic equation.
-    if in_c3 == 0: 
-        return list(solve_quadratic(in_c2, in_c1, in_c0))
-    c2 = in_c2 / ( 3 * in_c3)
-    c1 = in_c1 / ( 3 * in_c3)
-    c0 = in_c0 / in_c3
+def solve_cubic(a: float, b: float, c: float): 
+    """Solves the cubic equation x**3 + a * x**2 + b * x + c = 0.
+    See: https://momentsingraphics.de/CubicRoots.html.
+    Returns only the real solutions."""
+
+    c2 = a / 3 
+    c1 = b / 3
+    c0 = c 
     
     # (d0, d1, d2) are called Delta in the article. 
     d0 = -c2**2 + c1
@@ -55,13 +71,13 @@ def solve_cubic(in_c0: float, in_c1: float, in_c2: float, in_c3: float):
     de = -2 * c2 * d0 + d1
     
     if d < 0:
-        sq = math.sqrt(-.25 * d)
-        r = - .5 * de
-        t1 = math.cbrt(r + sq) + math.cbrt(r - sq)
-        return [t1 - c2]
+        sq = math.sqrt(-0.25 * d)
+        r = - 0.5 * de
+        t1: float = (r + sq)**(1.0/3.0) + (r - sq)**(1.0/3.0)
+        return t1 - c2
     elif d == 0: 
         t1 = math.copysign(math.sqrt(-d0), de)
-        return [t1 - c2, - 2 * t1 - c2]
+        return t1 - c2, - 2 * t1 - c2
     else:
         th = math.atan2(math.sqrt(d), -de) / 3
         # r0, r1, r2 is called "Root"
@@ -70,14 +86,14 @@ def solve_cubic(in_c0: float, in_c1: float, in_c2: float, in_c3: float):
         r1 = .5 * (-r0 + ss3)
         r2 = .5 * (-r0 - ss3)
         t = 2 * math.sqrt(-d0)
-        return [t * r0 - c2, t * r1 - c2, t * r2 - c2]
+        return t * r0 - c2, t * r1 - c2, t * r2 - c2
 
-def testing_cubic(a, b, c, d):
+def test_cubic(a, b, c):
     print("Input: ", sorted([a, b, c]))
-    c2 = - d * (a + b + c)
-    c1 = d * (a * b + a * c + b * c)
-    c0 = d * (- a * b * c)
-    print("Output: ", sorted(solve_cubic(c0, c1, c2, d)))
+    c2 = - (a + b + c)
+    c1 = (a * b + a * c + b * c)
+    c0 = (- a * b * c)
+    print("Output: ", solve_cubic(c2, c1, c0))
 
 def solve_quartic(a: float, b:float, c: float, d: float): 
     """Solves the quartic equation x**4 + a * x**3 + b * x**2 + c * x + d = 0.
@@ -501,7 +517,8 @@ def vieta(x1, x2, x3, x4):
     roots = solve_quartic(a.real, b.real, c.real, d.real)
     return roots
 
-def test(i):
+def test_quartic(i):
+    """All test cases from the article."""
     roots = [[1e9, 1e6, 1e3, 2],
              [2.003, 2.002, 2.001, 2],
              [1e53, 1e50, 1e49, 1e47],
