@@ -70,14 +70,14 @@ def solve_cubic(a: float, b: float, c: float):
     # de is called Depressed.x. Depressed.y = d0
     de = -2 * c2 * d0 + d1
     
-    if d < 0:
+    if d < 0.0:
         sq = math.sqrt(-0.25 * d)
         r = - 0.5 * de
-        t1: float = (r + sq)**(1.0/3.0) + (r - sq)**(1.0/3.0)
-        return t1 - c2
-    elif d == 0: 
+        t1: float = math.copysign(abs(r + sq)**(1/3), r + sq) + math.copysign(abs(r - sq)**(1/3), r - sq)
+        return [t1 - c2]
+    elif d == 0.0: 
         t1 = math.copysign(math.sqrt(-d0), de)
-        return t1 - c2, - 2 * t1 - c2
+        return [t1 - c2, - 2 * t1 - c2]
     else:
         th = math.atan2(math.sqrt(d), -de) / 3
         # r0, r1, r2 is called "Root"
@@ -86,7 +86,7 @@ def solve_cubic(a: float, b: float, c: float):
         r1 = .5 * (-r0 + ss3)
         r2 = .5 * (-r0 - ss3)
         t = 2 * math.sqrt(-d0)
-        return t * r0 - c2, t * r1 - c2, t * r2 - c2
+        return [t * r0 - c2, t * r1 - c2, t * r2 - c2]
 
 def test_cubic(a, b, c):
     print("Input: ", sorted([a, b, c]))
