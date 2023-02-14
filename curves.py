@@ -1,12 +1,17 @@
 # Copyright 2022 Google LLC
-# Copyright 2023 Jens Zamanian 
+# Copyright 2022 Raph Levien
+# Copyright 2023 Jens Zamanian
 
-# A big part of this file is based on the ideas and code found at:
-# raphlinus.github.io 
+# DISCLAIMER: 
+# A big part of this file is based on the ideas found in the blogpost: 
+# https://raphlinus.github.io/curves/2022/09/09/parallel-beziers.html
+# and parts of the code is adapted from the in the interactive
+# demo on that page (source can be found at: raphlinus/raphlinus.github.io). 
 # However, all the code have been rewritten in Python and almost
-# all of it is modified (so any bugs/errors are my fault (JZ). 
-# Hopefully it is correct to consider this a derived work and 
-# hence retain the Apache 2.0 licence in this specific file.
+# all of it is modified so any bugs/errors are my fault (JZ).
+# Hopefully it is correct to consider this a derived work and
+# hence retain the Apache 2.0 licence for this file.
+# END DISCLAIMER
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,12 +25,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Classes and utility functions for Bezier curves.  
+Classes and utility functions for Bezier curves. 
 """
-# Bezier: Contains all data and operations needed to define and work with a Bezier curve. 
-# Spline: Contains a list of Bezier curves. 
-# 1. How should we init this class? Either we init by passing all the points and the class creates and stores the Bezier instances, or we can init by passing pre-fabricated Bezier instances. 
-# 2. Can we programme for both options? Either with wargs or kwargs. 
+
+# Bezier: Contains all data and operations needed to define and work with a Bezier curve.
+# Spline: Contains a list of Bezier curves.
+# 1. How should we init this class? Either we init by passing all the points and the class creates and stores the Bezier instances, or we can init by passing pre-fabricated Bezier instances.
+# 2. Can we programme for both options? Either with wargs or kwargs.
 # Curves
 # Again we need to think about how to init these. 
 
