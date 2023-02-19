@@ -459,50 +459,41 @@ class Bezier(CurveObject):
         return aligned_points
 
     def bounding_box(self, world_space = False):
-        """Calculate the bounding box of the curve."""
+        """Calculate the bounding box of the curve.
+        Returns dict('min_x', 'max_x', 'min_y', 'max_y')"""
         # TODO: Make it possible to calculate the tight bounding box if this
         # is deemed useful. 
         # TODO: Consider using a Rectangle class for this?
         # Need to calculate the rotation and translation also! 
         extrema = self.extrema()
-        min_x = self.__call__(extrema[0], world_space)[0]
-        max_x = self.__call__(extrema[1], world_space)[0]
-        min_y = self.__call__(extrema[2], world_space)[1]
-        max_y = self.__call__(extrema[3], world_space)[1]
+        x_values = [self(t, world_space = True)[0] for t in extrema] 
+        y_values = [self(t, world_space = True)[1] for t in extrema] 
+        min_x = min(x_values)
+        max_x = max(x_values)
+        min_y = min(y_values)
+        max_y = max(y_values)
         return {'min_x': min_x, 'max_x': max_x, 'min_y': min_y, 'max_y': max_y}
-        # return (min_x, max_x, min_y, max_y)
 
     def extrema(self):
         """
         Returns the parameter values for the minimum and maximum of the curve
         in the x and y coordinate. 
-        (tx_min, tx_min, ty_max, ty_max)
-        If absolute we return the extremas of the aligned curve.
         """
+        # TODO: Clean up using e.g. itertools. 
         # TODO: This must take the rotation into account when that is added.
         p0, p1, p2, p3 = self.points
 
         a = 3 * (-p0 + 3 * p1 - 3 * p2 + p3)
         b = 6 * (p0 - 2*p1 + p2)
         c = 3*(p1 - p0) 
-        
-        # TODO: Clean up using e.g. itertools. 
-        endpoints = (0.0, 1.0) # Must also check if extrema occurs on endpoint.
-        tx_roots = endpoints + solvers.solve_quadratic(a[0], b[0], c[0]) 
-        ty_roots = endpoints + solvers.solve_quadratic(a[1], b[1], c[1]) 
+        # Solve for all points where x'(t) = 0 and y'(t) = 0.
+        tx_roots = solvers.solve_quadratic(a.x, b.x, c.x) 
+        ty_roots = solvers.solve_quadratic(a.y, b.y, c.y) 
+        roots = [0.0, 1.0] # Extrema can also occur at the endpoints.
+        roots.extend([t for t in tx_roots if isinstance(t, float) and 0.0 <= t <= 1.0])
+        roots.extend([t for t in ty_roots if isinstance(t, float) and 0.0 <= t <= 1.0])
 
-        tx_roots = [t for t in tx_roots if 0.0 <= t <= 1.0] 
-        ty_roots = [t for t in ty_roots if 0.0 <= t <= 1.0] 
-
-        x_values = [self.__call__(t, world_space = True)[0] for t in tx_roots] 
-        y_values = [self.__call__(t, world_space = True)[1] for t in ty_roots] 
-
-        tx_max = tx_roots[x_values.index(max(x_values))]
-        tx_min = tx_roots[x_values.index(min(x_values))]
-        ty_max = ty_roots[y_values.index(max(y_values))]
-        ty_min = ty_roots[y_values.index(min(y_values))]
-
-        return [tx_min, tx_max, ty_min, ty_max]
+        return roots
 
     def split(self, t0: float, t1: Optional[float] = None):
         """Splits the Bezier curve at the parameter(s) t0 (and t1). 
@@ -685,19 +676,9 @@ class Bezier(CurveObject):
         c2 = 3 * d.x * (p0.y - 2 * p1.y + p2.y) - 3 * d.y * (p0.x - 2 * p1.x + p2.x)
         c3 = d.x * (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) + d.y * (p0.x - 3 * p1.x + 3 * p2.x - p3.x)
         # print("C", c0, c1, c2, c3)
-        sols: list[float] = []
-        if c3 != 0.0:
-            # print("cubic")
-            qs = solvers.solve_cubic(c2 / c3, c1 / c3, c0 / c3)
-            # print(qs)
-            sols: list[float] = [s for s in qs if isinstance(s, float)]
-        elif c2 != 0.0: 
-            qs = solvers.solve_quadratic(c1 / c2, c0 / c2)
-            sols: list[float] = [s for s in qs if isinstance(s, float)]
-        elif c1 != 0.0:
-            sols = [c0 / c1]
-        ts = [t for t in sols if t > 0.0 and t < 1.0]
-        return ts
+        qs = solvers.solve_cubic(c3, c2, c1, c0)
+        sols: list[float] = [s for s in qs if isinstance(s, float) and 0.0 < s < 1.0]
+        return sols
 
     def find_offset_cusps(self, d: float):
         """Find the parameters values where the curvature is equal to the inverse of the distance d."""
@@ -746,14 +727,25 @@ class Bezier(CurveObject):
             offset = off.find_cubic_approximation()
             if offset is not None:
                 offsets.append(offset)
+        if double_side:
+            cusps = self.find_offset_cusps(-d)
+            for cusp in cusps:
+                curve = self.split(cusp['t0'], cusp['t1'])
+                off = OffsetBezier(curve, -d, cusp['sign'], tolerance)
+                offset = off.find_cubic_approximation()
+                if offset is not None:
+                    offsets.append(offset)
 
     def find_self_intersection(self):
+        """Finds the self intersection of the curve (if any).
+        Returns three parameter values. The middle value corresponds to ta = tb, 
+        so it is really not a solution."""
+        # TODO: Try to minimize cancellation errors.
         p0 = self.points[0]
         p1 = self.points[1]
         p2 = self.points[2]
         p3 = self.points[3]
 
-        H0 = p0
         H1 = -3 * p0 + 3 * p1
         H2 = 3 * p0 - 6 * p1 + 3 * p2
         H3 = - p0 + 3 * p1 - 3 * p2 + p3 
@@ -773,13 +765,25 @@ class Bezier(CurveObject):
         r0 = (- k**3 - A * k**2 - B * k ) / 2
         r1 = (3 * k**2 + 2 * k * A + 2 * B) / 2
         r2 = - 3 * k / 2;
-        solutions = solvers.solve_cubic(r2, r1, r0)
+        sols = solvers.solve_cubic(1.0, r2, r1, r0)
         
-        if len(solutions) == 3:
-            solutions.sort()
-            return solutions
-        else:
-            return None
+        if sols: 
+            solutions = []
+            for s in sols:
+                if (s >= 0.0 and s <= 1.0):
+                    solutions.append(s)
+                solutions.sort()
+            if len(solutions) == 3:
+                return solutions
+
+        return None
+
+    def find_intseraction(self, bez: Bezier):
+        """Find the intersection between self and bez.
+        Returns a list of parameter value pairs (t, t') so that self(t) = bez(t').
+        """
+        pass
+
 
 class Spline(CurveObject): 
     """A list of Bezier curves corresponds to a single spline object.
@@ -1315,17 +1319,8 @@ class OffsetBezier():
         k3 = 3*a*c0**3*s1**2/14 - 3*a*c0**2*c1*s0*s1/7 + 3*a*c0*c1**2*s0**2/14 - c0**2*s0*s1**2*x3**2/35 + c0*c1*s0**2*s1*x3**2/70 + c1**2*s0**3*x3**2/70
         k4 = -3*c0**3*s0*s1**2*x3/280 + 3*c0**2*c1*s0**2*s1*x3/140 - 3*c0*c1**2*s0**3*x3/280
         # print("K", k4, k3, k2, k1, k0)
-        if k4 != 0.0:
-            sols = solvers.solve_quartic(k3 / k4, k2 / k4, k1 / k4, k0 / k4)
-        elif k3 != 0.0:
-            sols = solvers.solve_cubic(k2 / k3, k1 / k3, k0 / k3)
-        elif k2 != 0.0:
-            sols = solvers.solve_quadratic(k1 / k2, k0 / k2)
-        elif k1 != 0.0:
-            sols = [k0 / k1]
-        else:
-            print("NO CURVE FOUNDS")
-            sols = []
+        sols = solvers.solve_quartic(k4, k3, k2, k1, k0)
+
         good_sols = [sol for sol in sols if isinstance(sol, float)]
         good_sols.extend([sol.real for sol in sols if isinstance(sol, complex)])
         n = 0

@@ -19,47 +19,57 @@ import math
 import cmath
 from typing import Union
 
-def solve_quadratic(a: Union[float, complex], b: Union[float, complex]):
-    """Solves x**2 + a * x + b = 0. a and b can be complex numbers."""
+def solve_quadratic(c2: Union[float, complex], c1: Union[float, complex], c0: Union[float, complex]):
+    """Solves c2 * x**2 + c1 * x + c0 = 0. ci can be complex numbers.
+    Returns a list of the roots."""
     
-    if isinstance(a, complex) or isinstance(b, complex):
-        gamma1 = - a / 2 + cmath.sqrt(a**2/4 - b)
-        gamma2 = - a / 2 - cmath.sqrt(a**2/4 - b)
+    if c2 == 0.0:
+        return [] if c1 == 0.0 else [c0 / c1]
+
+    c1 /= c2
+    c0 /= c2
+
+    if isinstance(c1, complex) or isinstance(c0, complex):
+        gamma1 = - c1 / 2 + cmath.sqrt(c1**2 / 4 - c0)
+        gamma2 = - c1 / 2 - cmath.sqrt(c1**2 / 4 - c0)
 
         if abs(gamma1) > abs(gamma2):
             eta1 = gamma1
         else:
             eta1 = gamma2
         x0 = eta1
-        x1 = b / eta1
+        x1 = c0 / eta1
     else: 
-        delta = a**2 - 4 * b
+        delta = c1**2 - 4 * c0
         if delta < 0.0: 
-            x0 = - a / 2 + 1/2 * math.sqrt(-delta) * complex(0,1)
-            x1 = - a / 2 - 1/2 * math.sqrt(-delta) * complex(0,1)
+            x0 = - c1 / 2 + 1/2 * math.sqrt(-delta) * complex(0,1)
+            x1 = - c1 / 2 - 1/2 * math.sqrt(-delta) * complex(0,1)
         else: 
-            if a >= 0.0:
-                etaM = - a / 2 - math.sqrt(delta) / 2 
+            if c1 >= 0.0:
+                etaM = - c1 / 2 - math.sqrt(delta) / 2 
             else:
-                etaM = - a / 2 + math.sqrt(delta) / 2 
+                etaM = - c1 / 2 + math.sqrt(delta) / 2 
             if etaM == 0.0:
                 etam = 0.0
             else:
-                etam = b / etaM
+                etam = c0 / etaM
 
             x0 = etaM
             x1 = etam
 
     return [x0, x1]
 
-def solve_cubic(a: float, b: float, c: float): 
-    """Solves the cubic equation x**3 + a * x**2 + b * x + c = 0.
+def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float): 
+    """Solves the cubic equation c3i * x**3 + c2i * x**2 + c1i * x + c0i = 0.
     See: https://momentsingraphics.de/CubicRoots.html.
     Returns only the real solutions."""
 
-    c2 = a / 3 
-    c1 = b / 3
-    c0 = c 
+    if c3i == 0.0:
+        return solve_cubic(c0i, c1i, c2i)
+
+    c2 = c2i / (3 * c3i) 
+    c1 = c1i / (3 * c3i)
+    c0 = c0i / c3i
     
     # (d0, d1, d2) are called Delta in the article. 
     d0 = -c2**2 + c1
@@ -73,6 +83,8 @@ def solve_cubic(a: float, b: float, c: float):
     if d < 0.0:
         sq = math.sqrt(-0.25 * d)
         r = - 0.5 * de
+        # x**(1/3) can return complex number if x < 0. 
+        # We take abs(x)**1/3 and then put back the sign to avoid this.
         t1: float = math.copysign(abs(r + sq)**(1/3), r + sq) + math.copysign(abs(r - sq)**(1/3), r - sq)
         return [t1 - c2]
     elif d == 0.0: 
@@ -93,20 +105,28 @@ def test_cubic(a, b, c):
     c2 = - (a + b + c)
     c1 = (a * b + a * c + b * c)
     c0 = (- a * b * c)
-    print("Output: ", solve_cubic(c2, c1, c0))
+    print("Output: ", solve_cubic(1.0, c2, c1, c0))
 
-def solve_quartic(a: float, b:float, c: float, d: float): 
-    """Solves the quartic equation x**4 + a * x**3 + b * x**2 + c * x + d = 0.
-    a, b, c, and d are floats (and hence real numbers). 
+def solve_quartic(c4: float, c3:float, c2: float, c1: float, c0: float): 
+    """Solves the quartic equation c4 * x**4 + c3 * x**3 + c2 * x**2 + c1 * x + c0 = 0.
+    ci are floats (and hence real numbers). 
     The return value is a list of the solutions, including complex solutions.
-    Note, if x + i * y is one solution, one of the other is always the complex 
-    conjugate.
+    Note, if x + i * y is one solution, one of the other roots is always the complex conjugate.
     A direct implementation of the algorithm in the paper:
     Alberto Giacomo Orellana and Cristiano De Michele. 2020. 
     Algorithm 1010: Boosting Efficiency in Solving Quartic Equations with No Compromise in Accuracy. 
     ACM Trans. Math. Softw. 46, 2, Article 20 (June 2020), 28 pages. https://doi.org/10.1145/3386241
     """
-    # coefficients = [a, b, c, d]
+    if c4 == 0.0: 
+        return solve_cubic(c3, c2, c1, c0)
+
+    a = c3 / c4
+    b = c2 / c4
+    c = c1 / c4
+    d = c0 / c4
+    # TODO: Rewrite function so that it accepts five coefficients instead. 
+    # It is easier if the function handles also the case where there is a coefficient
+    # in front of x**4. 
     solutions: list[Union[float, complex]] = []
     rescale_quartic = False
     phi = None
@@ -138,9 +158,8 @@ def solve_quartic(a: float, b:float, c: float, d: float):
     
     alpha1, beta1, alpha2, beta2 = calculate_alpha_beta(a, b, c, d, l1, l2, l3, d2, phi)
     
-    x0, x1 = solve_quadratic(alpha1, beta1)
-    x2, x3 = solve_quadratic(alpha2, beta2)
-    # x0, x1, x2, x3 = solve_quad(alpha1, beta1, alpha2, beta2)
+    x0, x1 = solve_quadratic(1.0, alpha1, beta1)
+    x2, x3 = solve_quadratic(1.0, alpha2, beta2)
     
     if rescale_quartic: 
         x0 *= K_Q
@@ -510,11 +529,11 @@ def refine_alpha_beta(a: float, b: float, c: float, d: float,
     return [alpha1, beta1, alpha2, beta2] 
 
 def vieta(x1, x2, x3, x4):
-    a = -(x1 + x2 + x3 + x4)
-    b = x1 * (x2 + x3) + x2 * (x3 + x4) + x4 * (x1 + x3)
-    c = -x1 * x2 * (x3 + x4) - x3 * x4 * (x1 + x2)
-    d = x1 * x2 * x3 * x4
-    roots = solve_quartic(a.real, b.real, c.real, d.real)
+    c3 = -(x1 + x2 + x3 + x4)
+    c2 = x1 * (x2 + x3) + x2 * (x3 + x4) + x4 * (x1 + x3)
+    c1 = -x1 * x2 * (x3 + x4) - x3 * x4 * (x1 + x2)
+    c0 = x1 * x2 * x3 * x4
+    roots = solve_quartic(1.0, c3.real, c2.real, c1.real, c0.real)
     return roots
 
 def test_quartic(i):
