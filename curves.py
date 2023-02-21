@@ -35,21 +35,23 @@ Classes and utility functions for Bezier curves.
 # Curves
 # Again we need to think about how to init these. 
 
-# TODO: Remove premature optimization. 
 # import cProfile
 # cProfile.run('<commands here as quoted string'>)
 
+
+# TODO: Switch to numpy. mathutils has poor precision.
+# However, numpy is very slow in comparison...
 # Begin constants
 # TODO: Which are needed?
-THRESHOLD = 5e-5
-TUPLE_FILTER_THRESHOLD = 1e-2
+THRESHOLD = 1e-6
+TUPLE_FILTER_THRESHOLD = 1e-5
 # End constants
 
-from mathutils import Vector, Matrix
-import mathutils 
+import mathutils
 import math
 import bpy
 import itertools
+import numpy as np
 from . import solvers
 from .gauss_legendre import GAUSS_LEGENDRE_COEFFS_32
 from typing import Union, Optional
@@ -63,31 +65,15 @@ def add_line(a: mathutils.Vector, b: mathutils.Vector):
     edges = [(0,1)]
     faces = []
     me.from_pydata(verts, edges, faces)
-    # ob.data.vertices.add(2)
-    # ob.data.vertices[0].co = a
-    # ob.data.vertices[1].co = b
-    # ob.data.edges.add(1)
-    # ob.data.edges[0].vertices = (0,1)
-    # me.update(calc_edges_loose = True)
     ob = bpy.data.objects.new('Line', me)
     bpy.data.collections['Collection'].objects.link(ob)
 
 def add_square(p: mathutils.Vector, r = 0.1):
     me = bpy.data.meshes.new('Square')
-    x = Vector((1,0,0))
-    y = Vector((0,1,0))
-    # ob.data.vertices.add(4)
-    # ob.data.vertices[0].co = p + r * (x + y) / 2
-    # ob.data.vertices[1].co = p + r * (x - y) / 2
-    # ob.data.vertices[2].co = p - r * (x + y) / 2
-    # ob.data.vertices[3].co = p - r * (x - y) / 2
-    # ob.data.edges.add(4)
-    # ob.data.edges[0].vertices = (0,1)
-    # ob.data.edges[1].vertices = (1,2)
-    # ob.data.edges[2].vertices = (2,3)
-    # ob.data.edges[3].vertices = (3,0)
-    # me.update(calc_edges_loose = True)
-    verts = [p + r * (x + y) / 2, p + r * (x - y) / 2, p - r * (x + y) / 2, p - r * (x - y) / 2]
+    x = mathutils.Vector((1,0,0))
+    y = mathutils.Vector((0,1,0))
+    q = np.array((p[0], p[1], p[2]))
+    verts = [q + r * (x + y) / 2, q + r * (x - y) / 2, q - r * (x + y) / 2, q - r * (x - y) / 2]
     edges = [(0,1), (1,2), (2,3), (3,0), (0,2), (1,3)]
     faces = []
     me.from_pydata(verts, edges, faces)
@@ -95,21 +81,18 @@ def add_square(p: mathutils.Vector, r = 0.1):
     bpy.data.collections['Collection'].objects.link(ob)
 
 def curve_intersections(c1, c2, threshold = THRESHOLD):
-    """Recursive method used for finding the intersection between 
-    two Bezier curves, c1, and c2. 
+    """Recursive method used for finding the intersection between two Bezier curves, c1, and c2.
     """
     # TODO: Make this a method of Bezier and/or Curve. 
+    # TODO: This does not take into account the object rotation.
     # It can have the signature _find_intersections_recursively(self, curve, threshold)
-    # print('curve', c1.t0, c1.t1, c2.t0, c2.t1)
     if c1.t1 - c1.t0 < threshold and c2.t1 - c2.t0 < threshold:
         return [((c1.t0 + c1.t1)/2 , (c2.t0 + c2.t1)/2)]
-        # return [(c1.t0, c2.t0)]
 
     cc1 = c1.split(0.5)
     cc2 = c2.split(0.5)
     pairs = itertools.product(cc1, cc2)
 
-    # pairs = list(filter(lambda x: are_overlapping(x[0].bounding_box(world_space = True), x[1].bounding_box(world_space = True)), pairs))
     pairs = list(filter(lambda x: x[0].overlaps(x[1]), pairs))
     # print(pairs)
     results = [] 
@@ -155,26 +138,39 @@ def are_overlapping(bbbox1, bbbox2):
 
 class CurveObject():
     """Base class for all curves."""
-    __slots__ = ("name", "_location")
-    # TODO: Add rotation?
-    # TODO: Perhaps it makes more sense to make this the base class of only Spline and Curve.
+    __slots__ = ("name", 
+                 "_location",
+                 "_rotation")
     # Methods:
     # - boundary box
     # - intersections 
     # - self intersections
     # - create blender curve object
     
-    def __init__(self, name = "Curve Object", location = Vector((0,0,0))):
+    def __init__(self,
+                 name = "Curve Object",
+                 location = mathutils.Vector((0,0,0)),
+                 rotation = mathutils.Euler((0.0, 0.0, 0.0),'XYZ')
+                ):
         self.name = name
         self.location = location
-        
+        self.rotation = rotation
+
     @property
     def location(self):
         return self._location
 
     @location.setter
-    def location(self, loc: mathutils.Vector):
-        self._location = loc
+    def location(self, location: mathutils.Vector):
+        self._location = location
+
+    @property
+    def rotation(self):
+        return self._rotation
+
+    @rotation.setter
+    def rotation(self, rotation: mathutils.Euler):
+        self._rotation = rotation
 
 
 class QuadraticBezier():
@@ -218,14 +214,15 @@ class Bezier(CurveObject):
                  t0 = 0.0,
                  t1 = 1.0, 
                  name = "Bezier", 
-                 location = Vector((0,0,0))
+                 location = mathutils.Vector((0,0,0)),
+                 rotation = mathutils.Euler((0.0, 0.0, 0.0), 'XYZ'),
                  ) -> None:
         """ 
         Initializes the cubic Bezier and sets its points and degree. 
         The points should be mathutils.Vectors of some fixed dimension.
         The number of points should be 3 or higher. 
         """
-        super().__init__(name, location)
+        super().__init__(name, location, rotation)
         self.points = [p0, p1, p2, p3]
         # The dangling handles of a Bezier curve in Blender are not really part of a mathematical curve. 
         # Instead they belong to the previous or next Bezier in case of a poly-bezier curve. 
@@ -255,9 +252,14 @@ class Bezier(CurveObject):
         p3: mathutils.Vector = bezier_points[1].co
         end_handle_right: mathutils.Vecor = bezier_points[1].handle_right
         loc: mathutils.Vector = cu.location
-        return cls(p0, p1, p2, p3, name=name, location=loc, 
-                      start_handle_left = start_handle_left,
-                      end_handle_right = end_handle_right)
+        rot: mathutils.Euler = cu.rotation_euler
+        return cls(p0, p1, p2, p3, 
+                   name = name,
+                   location=loc, 
+                   rotation = rot,
+                   start_handle_left = start_handle_left,
+                   end_handle_right = end_handle_right
+                   )
 
     def handle_linear(self):
         """Handles the cases where either or both of the control handles
@@ -301,14 +303,19 @@ class Bezier(CurveObject):
         string += "end_handle_right: " + str(self.end_handle_right)
         return string
 
-    def __call__(self, t: float, world_space: bool = False):
+    def __call__(self, t: float, world_space: bool = False) -> mathutils.Vector:
         """ Returns the value at parameter t. 
         If world_space = False, the position is calculated relative 
         to the origin of the Bezier."""
-        p = self.points
+        p: list[mathutils.Vector] = self.points
         pos = p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3
         if world_space: 
-            return pos + self.location
+            if self.rotation.z != 0.0:
+                rot = self.rotation.to_matrix() # type: ignore
+                pos: mathutils.Vector = rot @ pos + self.location #type: ignore
+                return pos
+            else:
+                return pos + self.location
         else:
             return pos
  
@@ -354,7 +361,7 @@ class Bezier(CurveObject):
         if derivative.length > 0.0: 
             return derivative / derivative.length #mathutils.vector.length
         else:
-            return derivative # Vector((0,0,0))
+            return derivative # mathutils.Vector((0,0,0))
 
     def normal(self, t: float):
         """Return the tangent rotated 90 degrees anti-clockwise."""
@@ -362,7 +369,7 @@ class Bezier(CurveObject):
         # so we should probably call this something else.
         der = self.eval_derivative(t) 
         unit_der = der / der.length
-        return Vector((-unit_der.y, unit_der.x, 0.0))
+        return mathutils.Vector((-unit_der.y, unit_der.x, 0.0))
 
     def curvature(self, t):
         """Returns the curvature at parameter t."""
@@ -433,7 +440,7 @@ class Bezier(CurveObject):
                 dp = self.points[3] - p2
                 s = d / dp.length
             else:
-                dp = Vector((0, 0, 0))
+                dp = mathutils.Vector((0, 0, 0))
                 s = 0
 
         return mathutils.Vector((-s * dp[1], s * dp[0], 0))
@@ -445,13 +452,13 @@ class Bezier(CurveObject):
         # TODO: If this is needed, rewrite the code so that usage of mathutils is minimized. 
         # mathutils is not exact enough.
         # Otherwise, remove.
-        m = Matrix.Translation(-self.points[0])
+        m = mathutils.Matrix.Translation(-self.points[0])
         end = m @ self.points[3]
         if end[0] != 0.0:
             angle = -math.atan2(end[1],end[0])
         else:
             angle = 0.0
-        k = Matrix.Rotation(angle, 4, 'Z') @ m
+        k = mathutils.Matrix.Rotation(angle, 4, 'Z') @ m
 
         aligned_points = []
         for p in self.points:
@@ -472,7 +479,8 @@ class Bezier(CurveObject):
         max_x = max(x_values)
         min_y = min(y_values)
         max_y = max(y_values)
-        return {'min_x': min_x, 'max_x': max_x, 'min_y': min_y, 'max_y': max_y}
+        area = (max_x - min_x) * (max_y - min_y)
+        return {'min_x': min_x, 'max_x': max_x, 'min_y': min_y, 'max_y': max_y, 'area': area}
 
     def extrema(self):
         """
@@ -496,6 +504,7 @@ class Bezier(CurveObject):
         return roots
 
     def split(self, t0: float, t1: Optional[float] = None):
+        # TODO: Remove this
         """Splits the Bezier curve at the parameter(s) t0 (and t1). 
         In case just one parameter value is given, a list of two curves 
         is returned. 
@@ -506,6 +515,7 @@ class Bezier(CurveObject):
         of the JavaScript code in the ref above int Python.
         """
         loc = self.location
+        rot = self.rotation
         if t0 == 0.0 and t1 is not None: 
             return self.split(t1)[0]
         elif t1 == 1.0:
@@ -520,7 +530,7 @@ class Bezier(CurveObject):
             new5 = new2 * (1 - t0) + new3 * t0 
             new6 = new4 * (1 - t0) + new5 * t0
 
-            result = [Bezier(p[0], new1, new4, new6, location=loc), Bezier(new6, new5, new3, p[3], location=loc)]
+            result = [Bezier(p[0], new1, new4, new6, location = loc, rotation = rot), Bezier(new6, new5, new3, p[3], location = loc, rotation = rot)]
 
             # The new split curves should keep track for the original 
             # parameter values at the end points. 
@@ -537,6 +547,36 @@ class Bezier(CurveObject):
                 # Then split again at that point. 
                 t1p = self.map_whole_to_split(t1, t0, 1) 
         return result[1].split(t1p)[0] 
+
+    def subsegment(self, t0: float, t1: float):
+        loc = self.location
+        rot = self.rotation
+
+        p0 = self(t0)
+        p3 = self(t1)
+        scale = (t1 - t0) / 3
+        d1 = self.eval_derivative(t0)
+        p1 = p0 + scale * d1
+        d2 = self.eval_derivative(t1)
+        p2 = p3 - scale * d2
+        return Bezier(p0, p1, p2, p3, t0 = t0, t1 = t1, location = loc, rotation = rot)
+
+    def split2(self, *parameters: float):
+        """Split the curve at parameters. Returns a list of the split segments."""
+        # TODO: Rename this to split as soon as the other one is removed.
+        ts = sorted([t for t in parameters])
+        if ts[0] != 0.0: 
+            ts.insert(0, 0.0)
+        if ts[-1] != 1.0: 
+            ts.append(1.0)
+        
+        sub_curves: list[Bezier] = []
+        for i in range(1, len(ts)): 
+            t0 = self.map_split_to_whole(ts[i-1])
+            t1 = self.map_split_to_whole(ts[i]) 
+            sub_curves.append(self.subsegment(t0, t1))
+
+        return sub_curves
 
     @staticmethod
     def map_whole_to_split(t, ds, de):
@@ -562,6 +602,7 @@ class Bezier(CurveObject):
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
+        ob.rotation_euler = self.rotation
         bpy.data.collections['Collection'].objects.link(ob)
         ob.data.resolution_u = 64
         cu.splines.new('BEZIER') # Add a first spline to Blender.
@@ -649,7 +690,7 @@ class Bezier(CurveObject):
         else:
             return True
 
-    def transform(self, angle = 0.0, translation = Vector((0,0,0)), world_space = False):
+    def transform(self, angle = 0.0, translation = mathutils.Vector((0,0,0)), world_space = False):
         """Rotates the curve an angle around the z axis and then translates it.
         If world_space, then the curve object is transformed instead of the local coordinates."""
         # TODO: Implement the world_space option. Use the superclass and put the rotation there.
@@ -720,21 +761,34 @@ class Bezier(CurveObject):
 
     def offset(self, d: float, double_side: bool = False, tolerance = 0.1): 
         cusps = self.find_offset_cusps(d)
-        offsets: list[Bezier] = []
+        loffsets: list[Bezier] = []
+        roffsets: list[Bezier] = []
         for cusp in cusps:
-            curve = self.split(cusp['t0'], cusp['t1'])
+            curve = self.subsegment(cusp['t0'], cusp['t1'])
             off = OffsetBezier(curve, d, cusp['sign'], tolerance)
             offset = off.find_cubic_approximation()
             if offset is not None:
-                offsets.append(offset)
+                loffsets.extend(offset)
         if double_side:
             cusps = self.find_offset_cusps(-d)
             for cusp in cusps:
-                curve = self.split(cusp['t0'], cusp['t1'])
+                curve = self.subsegment(cusp['t0'], cusp['t1'])
                 off = OffsetBezier(curve, -d, cusp['sign'], tolerance)
                 offset = off.find_cubic_approximation()
                 if offset is not None:
-                    offsets.append(offset)
+                    roffsets.extend(offset)
+        return [loffsets, roffsets]
+
+    def stroke(self): 
+        # d = self.d
+        d = .1
+        offsets = self.offset(d, double_side = True, tolerance = 0.01)
+        left_offset = Spline(*offsets[0], location = self.location, rotation = self.rotation)
+        right_offset = Spline(*offsets[1], location = self.location, rotation = self.rotation)
+        left_offset.name = 'Left'
+        right_offset.name = 'Right'
+        left_offset.add_to_Blender()
+        right_offset.add_to_Blender()
 
     def find_self_intersection(self):
         """Finds the self intersection of the curve (if any).
@@ -749,7 +803,7 @@ class Bezier(CurveObject):
         H1 = -3 * p0 + 3 * p1
         H2 = 3 * p0 - 6 * p1 + 3 * p2
         H3 = - p0 + 3 * p1 - 3 * p2 + p3 
-        if H3 == Vector((0,0,0)):
+        if H3 == mathutils.Vector((0,0,0)):
             return None
 
         A = H2.x / H3.x
@@ -775,14 +829,42 @@ class Bezier(CurveObject):
                 solutions.sort()
             if len(solutions) == 3:
                 return solutions
-
         return None
 
-    def find_intseraction(self, bez: Bezier):
+    def find_intersections(self, bez):
         """Find the intersection between self and bez.
         Returns a list of parameter value pairs (t, t') so that self(t) = bez(t').
         """
-        pass
+        treshold = 1e-13
+        bb1 = self.bounding_box(world_space = True)
+        bb2 = bez.bounding_box(world_space = True)
+        if bb1['min_x'] >= bb2['max_x'] or bb2['min_x'] >= bb1['max_x'] or bb1['min_y'] >= bb2['max_y'] or bb2['min_y'] >= bb1['max_y']:
+            return None
+        else:
+            if bb1['area'] * bb2['area'] < treshold:
+                return [(self.t0, self.t1, bez.t0, bez.t1)]
+            else: 
+                bb1s = self.split(0.5)
+                bb2s = bez.split(0.5)
+                inters = []
+                a = bb1s[0].find_intersections(bb2s[0])
+                b = bb1s[0].find_intersections(bb2s[1])
+                c = bb1s[1].find_intersections(bb2s[0])
+                d = bb1s[1].find_intersections(bb2s[1])
+                if a:
+                    inters.extend(a)
+                if b:
+                    inters.extend(b)
+                if c:
+                    inters.extend(c)
+                if d:
+                    inters.extend(d)
+
+                if inters:
+                    return inters
+                else:
+                    return None
+        
 
 
 class Spline(CurveObject): 
@@ -810,7 +892,8 @@ class Spline(CurveObject):
                  is_closed = False, 
                  strokewidth = 0.01,
                  name = "Spline",
-                 location = mathutils.Vector((0,0,0))
+                 location = mathutils.Vector((0,0,0)),
+                 rotation = mathutils.Euler((0,0,0), 'XYZ'),
                  ):
 
         self.beziers = list(beziers)
@@ -830,7 +913,7 @@ class Spline(CurveObject):
             bezier.t0 = 0.0
             bezier.t1 = 1.0
 
-        super().__init__(name, location)
+        super().__init__(name, location, rotation)
 
     @classmethod
     def from_Blender(cls, name: str):
@@ -838,6 +921,7 @@ class Spline(CurveObject):
         cu = bpy.data.collections['Collection'].objects[name]
         beziers = []
         loc = cu.location
+        rot = cu.rotation
         spline = cu.data.splines[0]
         is_closed = spline.use_cyclic_u
         bezier_points = spline.bezier_points
@@ -850,6 +934,7 @@ class Spline(CurveObject):
             p3 = bezier_points[j + 1].co
             handle_right = bezier_points[j + 1].handle_right
             beziers.append(Bezier(p0, p1, p2, p3, location = loc, 
+                                  rotation = rot,
                                   start_handle_left = handle_left, 
                                   end_handle_right = handle_right
                                   ))
@@ -861,11 +946,17 @@ class Spline(CurveObject):
                   )
 
     @CurveObject.location.setter
-    def location(self, loc):
+    def location(self, loc: mathutils.Vector):
         """Set the location in world space of the Spline and all the Bezier curves."""
         for bez in self.beziers:
             bez.location = loc
         self._location = loc
+
+    @CurveObject.rotation.setter
+    def rotation(self, rot: mathutils.Euler):
+        for bez in self.beziers:
+            bez.rotation = rot
+        self._rotation = rot
 
     def reverse(self):
         for bez in self.beziers:
@@ -934,7 +1025,7 @@ class Spline(CurveObject):
         if self.end_point(world_space=True) == bezier.start_point(world_space=True):
             bezier.translate_origin(self.location) # Make the origins coincide.
             ep = self.end_point()
-            bezier.set_point(ep, 0) # Common point is same instance of Vector.
+            bezier.set_point(ep, 0) # Common point is same instance of mathutils.Vector.
             self.beziers.append(bezier)
         else:
             raise Exception("Start and end points of curves must be equal.")
@@ -962,6 +1053,7 @@ class Spline(CurveObject):
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
+        ob.rotation_euler = self.rotation
         bpy.data.collections["Collection"].objects.link(ob)
         ob.data.resolution_u = 64
         cu.splines.new('BEZIER')
@@ -1028,6 +1120,11 @@ class Spline(CurveObject):
                 intersections[pair[0][0], pair[1][0]] = results
         return intersections
 
+    def start_point(self, world_space = False):
+        return self.beziers[0](0, world_space = world_space)
+
+    def end_point(self, world_space = False):
+        return self.beziers[-1](1, world_space = world_space)
 
 class Curve(CurveObject):
     """Curve object, container class for splines. Mirrors the Curve Object in Blender."""
@@ -1038,7 +1135,7 @@ class Curve(CurveObject):
     # TODO: When that is implemented, check if the location setter works properly.
     # In the end, every single Bezier within each Spline should have the same location.
 
-    def __init__(self, *splines: Spline, name = "Curve", location = Vector((0,0,0))):
+    def __init__(self, *splines: Spline, name = "Curve", location = mathutils.Vector((0,0,0))):
         self.splines = list(splines)
         super().__init__(name, location)
 
@@ -1076,8 +1173,6 @@ class Curve(CurveObject):
         #self.bevellimit
         #...
         pass
-
-
 
 
 class OffsetBezier():
@@ -1124,7 +1219,7 @@ class OffsetBezier():
         else:
             s = 0
         # return cur.eval_offset(t, self.d) + cur(t)
-        return Vector((-s * dp[1], s * dp[0], 0))
+        return mathutils.Vector((-s * dp[1], s * dp[0], 0))
 
     def eval_offset_derivative(self, t: float):
         """Evaluates the derivative of the offset at parameter t."""
@@ -1182,12 +1277,12 @@ class OffsetBezier():
         
         if l_linear:
             h0 = (p1 - p0) / (p1 - p0).length
-            r0 = p0 + d * Vector((-h0.y, h0.x, 0))
+            r0 = p0 + d * mathutils.Vector((-h0.y, h0.x, 0))
         else: 
             r0 = p0 + d * bez.normal(0.0) # eval_offset vector of original curve.
         if r_linear: 
             h1 = (p3 - p2) / (p3 - p2).length
-            r1 = p3 + d * Vector((-h1.y, h1.x, 0))
+            r1 = p3 + d * mathutils.Vector((-h1.y, h1.x, 0))
         else:
             r1 = p3 + d * bez.normal(1.0)
         th = math.atan2( (r1 - r0)[1], (r1 - r0)[0])
@@ -1272,7 +1367,7 @@ class OffsetBezier():
         else: 
             p = self.rot_curve.points
             der = (p[3] - p[0]) / (p[3] - p[0]).length
-            disp = self.d * Vector((-der.y, der.x, 0))
+            disp = self.d * mathutils.Vector((-der.y, der.x, 0))
             p0 = p[0] + disp
             p1 = p[1] + disp
             p2 = p[2] + disp
@@ -1284,20 +1379,24 @@ class OffsetBezier():
         # best_curve.add_to_Blender() 
         return {'curve': best_curve, 'error': best_err}
 
-    def find_cubic_approximation(self):
+    def find_cubic_approximation(self) -> list[Bezier]:
         tolerance = self.tolerance
         approx = self._find_best_approximation()
+
         if approx['curve'] and approx['error'] <= tolerance:
             # print("Adding curve", approx['curve'])
             approx['curve'].name = self.original_curve.name
-            approx['curve'].add_to_Blender()
-            return approx['curve']
+            # approx['curve'].add_to_Blender()
+            return [approx['curve']]
         else:
-            b = self.original_curve.split(0.5)
+            b = self.original_curve.split2(0.5)
             k1 = OffsetBezier(b[0], self.d, self.sign)
             k2 = OffsetBezier(b[1], self.d, self.sign)
-            k1.find_cubic_approximation()
-            k2.find_cubic_approximation()
+            kk1 = k1.find_cubic_approximation()
+            kk2 = k2.find_cubic_approximation()
+            kk1.extend(kk2)
+            return kk1
+
 
     def _find_cubic_candidates(self):
         """Solve the quartic equation for delta0 and delta1 that give the offset which closest 
@@ -1347,10 +1446,10 @@ class OffsetBezier():
                 d0 = s1*x3/(c0*s1 - c1*s0)
             # print("d pairs after", d0, d1)
             if d0 >= 0.0 and d1 >= 0.0:
-                p0 = Vector((0, 0, 0))
-                p1 = Vector((d0 * c0, d0 * s0, 0))
-                p3 = Vector((x3, 0, 0))
-                p2 = p3 + Vector((d1 * c1, d1 * s1, 0))
+                p0 = mathutils.Vector((0, 0, 0))
+                p1 = mathutils.Vector((d0 * c0, d0 * s0, 0))
+                p3 = mathutils.Vector((x3, 0, 0))
+                p2 = p3 + mathutils.Vector((d1 * c1, d1 * s1, 0))
                 b = Bezier(p0, p1, p2, p3)
                 b.name = "Bezier" + str(n)
                 n += 1
@@ -1381,19 +1480,19 @@ class OffsetBezier():
 
 # TODO: Move the is_linear to the bezier curve instead.
 
-def ray_intersect(p0: Vector, d0: Vector, p1: Vector, d1: Vector): 
+def ray_intersect(p0: mathutils.Vector, d0: mathutils.Vector, p1: mathutils.Vector, d1: mathutils.Vector): 
     # TODO: Figure out what this does exactly. 
     det = d0.x * d1.y - d0.y * d1.x
     t = (d0.x * (p0.y - p1.y) - d0.y * (p0.x - p1.x)) / det
-    return Vector((p1.x + d1.x * t, p1.y + d1.y * t))
+    return mathutils.Vector((p1.x + d1.x * t, p1.y + d1.y * t))
 
 
 # Testing values relevant for trying to "approximate" another cubic
 # with positions 
-# Vector((0.0, 0.0, 0.0)), 
-# Vector((1.2317887544631958, 0.9850826859474182, 0.002845139242708683))
-# Vector((2.3887062072753906, 0.602931022644043, -0.0027865534648299217))
-# Vector((2.999779224395752, 0.0, 0.0))
+# mathutils.Vector((0.0, 0.0, 0.0)), 
+# mathutils.Vector((1.2317887544631958, 0.9850826859474182, 0.002845139242708683))
+# mathutils.Vector((2.3887062072753906, 0.602931022644043, -0.0027865534648299217))
+# mathutils.Vector((2.999779224395752, 0.0, 0.0))
 # mx = 1.869782404656517
 # a = 1.2274109939627678
 # th0 = 0.6745684953714891
