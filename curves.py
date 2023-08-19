@@ -42,10 +42,9 @@ Classes and utility functions for Bezier curves.
 # TODO: Switch to numpy. mathutils has poor precision. However, numpy is very slow in comparison...
 
 # Begin constants
-# TODO: Update name.THRESHOLD
-THRESHOLD = 1e-6 # Threshold for when to stop subdividing when finding intersections. 
-TUPLE_FILTER_THRESHOLD = 1e-5 # When are two parameter values considered equal?
-OFFSET_TOLERANCE = 1e-2
+INTERSECTION_THRESHOLD = 1e-6 # Threshold for when to stop subdividing when finding intersections.
+TUPLE_FILTER_THRESHOLD = .2e-1 # Threshold for when two intersections are assumed to be the same. 
+OFFSET_TOLERANCE = 1e-4
 # End constants
 
 import mathutils
@@ -55,7 +54,7 @@ import itertools
 import numpy as np
 from . import solvers
 from .gauss_legendre import GAUSS_LEGENDRE_COEFFS_32
-from typing import Union, Optional
+from typing import Optional
 
 ##### Utility Functions #####
 def add_line(a: mathutils.Vector, b: mathutils.Vector):
@@ -80,39 +79,24 @@ def add_square(p: mathutils.Vector, r = 0.1):
     ob = bpy.data.objects.new(me.name, me)
     bpy.data.collections['Collection'].objects.link(ob)
 
-def curve_intersections(c1, c2, threshold = THRESHOLD):
-    """Recursive method used for finding the intersection between two Bezier curves, c1, and c2.
-    """
-    # TODO: Moved to Bezier. REMOVE.
-    if c1.t1 - c1.t0 < threshold and c2.t1 - c2.t0 < threshold:
-        return [((c1.t0 + c1.t1)/2 , (c2.t0 + c2.t1)/2)]
-
-    cc1 = c1.split(0.5)
-    cc2 = c2.split(0.5)
-    pairs = itertools.product(cc1, cc2)
-
-    pairs = list(filter(lambda x: x[0].overlaps(x[1]), pairs))
-    # print(pairs)
-    results = [] 
-    if len(pairs) == 0:
-        return results
-    
-    for pair in pairs:
-        results += curve_intersections(pair[0], pair[1], threshold)
-    results = filter_duplicates(results)
-    return results
-
 def filter_duplicates(tuples, threshold = TUPLE_FILTER_THRESHOLD):
     """Filter out tuples that differ less than threshold.
     """
     result = []
     for tup in tuples:
-        if not any(_is_close(tup, other, threshold) for other in result):
+        if not any(tuple_is_close(tup, other, threshold) for other in result):
             result.append(tup)
+
+    # excluded = [(0, 0), (1, 0), (0, 1), (1, 1)]
+    # final = []
+    # for tup in result: 
+        # if not any(tuple_is_close(tup, other, threshold) for other in excluded):
+            # final.append(tup)
     return result
 
-def _is_close(a, b, threshold = TUPLE_FILTER_THRESHOLD):
-    """Checks if two tuples a, and b, differ less then threshold."""
+def tuple_is_close(a: tuple[float, float], b: tuple[float, float], threshold = TUPLE_FILTER_THRESHOLD):
+    """Checks if two tuples a, and b, differ less then threshold. 
+    (a, b) is close to (a', b') if (a - a') < threshold and abs(b - b') < threshold."""
     comparisons = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
     return comparisons
 
@@ -639,23 +623,6 @@ class Bezier(CurveObject):
             bezier_points[-2].handle_left = self.start_handle_left or p[0]
             bezier_points[-1].handle_right = self.end_handle_right or p[3]
 
-    def intersections(self, bezier, threshold = THRESHOLD):
-        """Returns a list of the parameters [(t, t'), ...] for the intersections 
-        between self and bezier.
-        """
-        c1 = self.reduced()
-        c2 = bezier.reduced()
-        pairs = itertools.product(c1, c2)
-        
-        pairs = [pair for pair in pairs if pair[0].overlaps(pair[1])]
-
-        intersections = []
-        for pair in pairs:
-            result = curve_intersections(*pair, threshold)
-            if len(result) > 0:
-                intersections += result
-        return intersections
-
     def overlaps(self, bezier):
         """Check if the bounding box of self and Bezier overlaps."""
         # 0      1      2      3
@@ -805,16 +772,19 @@ class Bezier(CurveObject):
         return None
 
     def find_intersections(self, bez):
-        """Find the intersection between self and bez.
+        """Find the intersection between self and other bez.
         Returns a list of parameter value pairs (t, t') so that self(t) = bez(t').
         """
-        treshold = 1e-13
+        # TODO: Not in use. use curve_intersections instead.
+        treshold = 1e-12
         bb1 = self.bounding_box(world_space = True)
         bb2 = bez.bounding_box(world_space = True)
         if bb1['min_x'] >= bb2['max_x'] or bb2['min_x'] >= bb1['max_x'] or bb1['min_y'] >= bb2['max_y'] or bb2['min_y'] >= bb1['max_y']:
             return None
         else:
             if bb1['area'] * bb2['area'] < treshold:
+                if (self.t0 < INTERSECTION_THRESHOLD or self.t1 > 1.0 - INTERSECTION_THRESHOLD) and (bez.t0 < INTERSECTION_THRESHOLD or bez.t1 > 1.0 - INTERSECTION_THRESHOLD):
+                        return None
                 return [(self.t0, self.t1, bez.t0, bez.t1)]
             else: 
                 bb1s = self.split(0.5)
@@ -838,16 +808,36 @@ class Bezier(CurveObject):
                 else:
                     return None
 
-    def curve_intersections(self, c2: 'Bezier', threshold = THRESHOLD):
+    def curve_intersections(self, c2: 'Bezier', threshold = INTERSECTION_THRESHOLD):
         """Recursive method used for finding the intersection between two Bezier curves, c1, and c2.
         """
-        # Since Bezier is not yet defined, we use 'Bezier' for the type annotation to make the typing system work properly. 
+        # TODO: Better
+        # Since the class Bezier is not defined at this point, 
+        # we use 'Bezier' for the type annotation to make the typing system work properly. 
+
+        # TODO: Check for endpoint matching. 
+        # For now, we simply remove tuples where both values are sufficiently close to 0 or 1.
+        # Probably we can save some time by checking this earlier. 
+        # if self.points[3] == c2.points[0]:
+        #     print("HOPSAN")
+        #     print(self.points[3], c2.points[0])
+        #     bez0 = self.split2(.9999)[0]
+        #     c2 = c2.split2(.001)[1]
+        # else:
+        #     bez0 = self
+        threshold2 = threshold * threshold
+        bez0 = self
         results: list[tuple[float, float]] = [] 
+        # if bez0.t1 - bez0.t0 < threshold and c2.t1 - c2.t0 < threshold:
+        if bez0.bounding_box()['area'] < threshold2 and c2.bounding_box()['area'] < threshold2:
+            # return [((bez0.t0 + bez0.t1)/2 , (c2.t0 + c2.t1)/2)]
+            if (bez0.t0 < TUPLE_FILTER_THRESHOLD or bez0.t1 > 1.0 - TUPLE_FILTER_THRESHOLD) and (c2.t0 < TUPLE_FILTER_THRESHOLD or c2.t1 > 1.0 - TUPLE_FILTER_THRESHOLD):
+                return []
+            else: 
+                print("ADDED", [(bez0.t0, bez0.t1, c2.t0, c2.t1)])
+                return [(bez0.t0, bez0.t1, c2.t0, c2.t1)]
 
-        if self.t1 - self.t0 < threshold and c2.t1 - c2.t0 < threshold:
-            return [((self.t0 + self.t1)/2 , (c2.t0 + c2.t1)/2)]
-
-        cc1 = self.split2(0.5)
+        cc1 = bez0.split2(0.5)
         cc2 = c2.split2(0.5)
         pairs = itertools.product(cc1, cc2)
 
@@ -860,6 +850,83 @@ class Bezier(CurveObject):
         results = filter_duplicates(results)
         return results
 
+### Start: Are these used?
+    def fat_line(self):
+        """Used for Bezier clipping: 
+        T.W. Sederberg, T. Nishita, Curve intersection using Bezier clipping
+        https://doi.org/10.1016/0010-4485(90)90039-F
+        """
+        p0 = self.points[0]
+        p1 = self.points[1]
+        p2 = self.points[2]
+        p3 = self.points[3]
+        t = p3 - p0
+        # TODO: Check for zero curve?
+        n = mathutils.Vector((-t.y, t.x, 0.0))
+        n = n / n.length
+        c = - p0.dot(n) 
+        d1 = p1.dot(n) + c
+        d2 = p2.dot(n) + c
+        if d1 * d2 > 0: 
+            k = 3 / 4
+        else: 
+            k = 4 / 9
+        dmin = k * min(0, d1, d2)
+        dmax = k * max(0, d1, d2)
+        return dmin, dmax, n, c
+
+    def fat_line_distance(self, bez: 'Bezier'):
+        """Calculate the distance from the control points of self
+        to the fat line of bez.
+        """
+        dmin, dmax, n, c = bez.fat_line()
+        d0 = self.points[0].dot(n) + c 
+        d1 = self.points[1].dot(n) + c 
+        d2 = self.points[2].dot(n) + c 
+        d3 = self.points[3].dot(n) + c 
+        return d0, d1, d2, d3, dmin, dmax
+
+    def intersect_fat_line(self, bez: 'Bezier'):
+        d0, d1, d2, d3, dmin, dmax = self.fat_line_distance(bez)
+        D0 = mathutils.Vector((0.0,   d0, 0.0))
+        D1 = mathutils.Vector((1 / 3, d1, 0.0))
+        D2 = mathutils.Vector((2 / 3, d2, 0.0))
+        D3 = mathutils.Vector((1.0,   d3, 0.0))
+        L0 = mathutils.Vector((0.0 ,dmin,0.0))
+        L1 = mathutils.Vector((1.0 ,dmin,0.0))
+        L2 = mathutils.Vector((0.0 ,dmax,0.0))
+        L3 = mathutils.Vector((1.0 ,dmax,0.0))
+        a = mathutils.geometry.intersect_line_line_2d(D0, D1, L0, L1)
+        b = mathutils.geometry.intersect_line_line_2d(D0, D1, L2, L3)
+        c = mathutils.geometry.intersect_line_line_2d(D0, D3, L0, L1)
+        d = mathutils.geometry.intersect_line_line_2d(D0, D3, L2, L3)
+        e = mathutils.geometry.intersect_line_line_2d(D1, D2, L0, L1)
+        f = mathutils.geometry.intersect_line_line_2d(D1, D2, L2, L3)
+        g = mathutils.geometry.intersect_line_line_2d(D2, D3, L0, L1)
+        h = mathutils.geometry.intersect_line_line_2d(D2, D3, L2, L3)
+        L = [a, b, c, d, e, f, g, h]
+        L = [x[0] for x in L if x is not None]
+        tmin = min(L)
+        tmax = max(L)
+        return tmin, tmax
+
+    def find_intersections2(self, bez: 'Bezier'):
+        """Hej"""
+        # TODO: Abandon this version of bez-bez intersection? 
+        # Instead we can check for bad cases, e.g. when the curve
+        # is close to itself and remove these.
+        ta1, tb1 = self.intersect_fat_line(bez)
+        a = self.subsegment(ta1, tb1)
+        ta2, tb2 = bez.intersect_fat_line(a)
+        b = bez.subsegment(ta2, tb2)
+        ta3, tb3 = a.intersect_fat_line(b)
+        a1 = a.subsegment(ta3, tb3)
+        ta4, tb4 = b.intersect_fat_line(a1)
+        b1 = b.subsegment(ta4, tb4)
+        print(ta4, tb4, b1.t0, b1.t1) 
+        ta5, tb5 = a1.intersect_fat_line(b1)
+        print(ta5, tb5)
+# End: Are these used?
 
 class Spline(CurveObject): 
     """A list of Bezier curves corresponds to a single spline object.
@@ -895,10 +962,12 @@ class Spline(CurveObject):
         prev_bez = None
         for bez in self.beziers:
             if not prev_bez:
+                prev_bez = bez
                 continue
             bez.points[0] = prev_bez.points[3]
             bez.start_handle_left = prev_bez.points[2]
             prev_bez = bez
+
         self.is_closed = is_closed
         self.strokewidth = strokewidth
 
@@ -1091,7 +1160,7 @@ class Spline(CurveObject):
         else:
             bezier_points[-1].handle_right = self.end_point(world_space = False)
 
-    def self_intersections(self, threshold = THRESHOLD):
+    def self_intersections(self, threshold = INTERSECTION_THRESHOLD):
         """Find the intersections within the spline.
         The results is a dict with two different key types. 
         1. When one of the Bezier in the Spline contains a self intersection: 
@@ -1109,7 +1178,6 @@ class Spline(CurveObject):
             ints = self.beziers[i].find_self_intersection() 
             if ints: 
                 intersections[i] = ints
-
         # Pair the curves.
         pairs = itertools.combinations(enumerate(self.beziers), 2)
         # Remove pairs which do not have overlapping bounding boxes. 
@@ -1170,6 +1238,7 @@ class Spline(CurveObject):
         
         bezs = self.beziers
         curves: list[Bezier] = []
+        print(5*'\n', compiled)
 
         # Keep the curves until first intersection.
         # Throw away all curves after the intersection.
@@ -1202,7 +1271,11 @@ class Spline(CurveObject):
                 print("Discarding unsplitted.")
 
         return Spline(*curves, location = self.location, rotation = self.rotation)
-        
+
+    def join_spline(self, mode):
+        """Join another spline to the end of self. 
+        mode determines how the joins are made in case self does not have continuous derivative."""
+
 
 class Curve(CurveObject):
     """Curve object, container class for splines. Mirrors the Curve Object in Blender."""
@@ -1335,7 +1408,7 @@ class OffsetBezier():
         l013 = math.sqrt((p0 - p1).x**2 + (p0 - p1).y**2) * math.sqrt((p1 - p3).x ** 2 + (p1 - p3).y**2)
 
         if (p1 == p0 and p2 == p3) or dotp0123 == l0123: 
-            self.is_linear
+            self.is_linear # TODO: What is this? Should it be self.is_linear = True?
         if p0 == p1: 
             l_linear = True
             if self.is_linear:
@@ -1475,7 +1548,6 @@ class OffsetBezier():
             kk1.extend(kk2)
             return kk1
 
-
     def _find_cubic_candidates(self):
         """Solve the quartic equation for delta0 and delta1 that give the offset which closest 
         matches the required metrics."""
@@ -1556,10 +1628,17 @@ class OffsetBezier():
 
         return {"area": 0.5 * area, "length": 0.5 * arclen, "x_moment": 0.5 * x_moment}
 
+
+class OffsetCurve():
+    """Takes a curve and offsets each bezier curve and patches the Bezier together."""
+    pass
+
+
 # TODO: Move the is_linear to the bezier curve instead.
 
 def ray_intersect(p0: mathutils.Vector, d0: mathutils.Vector, p1: mathutils.Vector, d1: mathutils.Vector): 
     # TODO: Figure out what this does exactly. 
+    # Probably line-line inersection.
     det = d0.x * d1.y - d0.y * d1.x
     t = (d0.x * (p0.y - p1.y) - d0.y * (p0.x - p1.x)) / det
     return mathutils.Vector((p1.x + d1.x * t, p1.y + d1.y * t))
