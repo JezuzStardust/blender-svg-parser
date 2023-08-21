@@ -1,0 +1,3 @@
+Note! Blender now comes with numpy! 
+
+Use that for the future. 
