@@ -24,9 +24,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Classes and utility functions for Bezier curves. 
-"""
+"""Classes and utility functions for Bezier curves."""
 
 # Bezier: Contains all data and operations needed to define and work with a Bezier curve.
 # Spline: Contains a list of Bezier curves.
@@ -34,10 +32,6 @@ Classes and utility functions for Bezier curves.
 # 2. Can we programme for both options? Either with wargs or kwargs.
 # Curves
 # Again we need to think about how to init these. 
-
-# import cProfile
-# cProfile.run('<commands here as quoted string'>)
-
 
 # TODO: Switch to numpy. mathutils has poor precision. However, numpy is very slow in comparison...
 
@@ -52,9 +46,10 @@ import math
 import bpy
 import itertools
 import numpy as np
+from typing import Optional
+
 from . import solvers
 from .gauss_legendre import GAUSS_LEGENDRE_COEFFS_32
-from typing import Optional
 
 ##### Utility Functions #####
 def add_line(a: mathutils.Vector, b: mathutils.Vector):
@@ -68,11 +63,11 @@ def add_line(a: mathutils.Vector, b: mathutils.Vector):
     bpy.data.collections['Collection'].objects.link(ob)
 
 def add_square(p: mathutils.Vector, r = 0.1):
+    """Adds a square to Blender at position p with side r."""
     me = bpy.data.meshes.new('Square')
     x = mathutils.Vector((1,0,0))
     y = mathutils.Vector((0,1,0))
-    q = np.array((p[0], p[1], p[2]))
-    verts = [q + r * (x + y) / 2, q + r * (x - y) / 2, q - r * (x + y) / 2, q - r * (x - y) / 2]
+    verts = [p + r * (x + y) / 2, p + r * (x - y) / 2, p - r * (x + y) / 2, p - r * (x - y) / 2]
     edges = [(0,1), (1,2), (2,3), (3,0), (0,2), (1,3)]
     faces = []
     me.from_pydata(verts, edges, faces)
@@ -80,8 +75,7 @@ def add_square(p: mathutils.Vector, r = 0.1):
     bpy.data.collections['Collection'].objects.link(ob)
 
 def filter_duplicates(tuples, threshold = TUPLE_FILTER_THRESHOLD):
-    """Filter out tuples that differ less than threshold.
-    """
+    """Filter out tuples that differ less than threshold."""
     result = []
     for tup in tuples:
         if not any(tuple_is_close(tup, other, threshold) for other in result):
@@ -106,6 +100,7 @@ class CurveObject():
     """Base class for all curves."""
     __slots__ = ("name", 
                  "_location",
+                 "_scale",
                  "_rotation")
     # Methods:
     # - boundary box
@@ -115,11 +110,13 @@ class CurveObject():
     
     def __init__(self,
                  name = "Curve Object",
-                 location = mathutils.Vector((0,0,0)),
+                 location = mathutils.Vector((0.0 ,0.0 ,0.0)),
+                 scale = mathutils.Vector((1.0, 1.0, 1.0)),
                  rotation = mathutils.Euler((0.0, 0.0, 0.0),'XYZ')
                 ):
         self.name = name
         self.location = location
+        self.scale = scale
         self.rotation = rotation
 
     @property # Use property for location and rotation so that subclasses can do that do.
@@ -129,6 +126,14 @@ class CurveObject():
     @location.setter
     def location(self, location: mathutils.Vector):
         self._location = location
+
+    @property
+    def scale(self):
+        return self._scale
+
+    @scale.setter
+    def scale(self, scale: mathutils.Vector):
+        self._scale = scale
 
     @property
     def rotation(self):
@@ -181,7 +186,8 @@ class Bezier(CurveObject):
                  t0 = 0.0,
                  t1 = 1.0, 
                  name = "Bezier", 
-                 location = mathutils.Vector((0,0,0)),
+                 location: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0)),
+                 scale = mathutils.Vector((1.0, 1.0, 1.0)),
                  rotation = mathutils.Euler((0.0, 0.0, 0.0), 'XYZ'),
                  ) -> None:
         """ 
@@ -189,7 +195,7 @@ class Bezier(CurveObject):
         The points should be mathutils.Vectors of some fixed dimension.
         The number of points should be 3 or higher. 
         """
-        super().__init__(name, location, rotation)
+        super().__init__(name, location, scale, rotation)
         self.points = [p0, p1, p2, p3]
         # The dangling handles of a Bezier curve in Blender are not really part of a mathematical curve. 
         # Instead they belong to the previous or next Bezier in case of a poly-bezier curve. 
@@ -219,10 +225,12 @@ class Bezier(CurveObject):
         p3: mathutils.Vector = bezier_points[1].co
         end_handle_right: mathutils.Vecor = bezier_points[1].handle_right
         loc: mathutils.Vector = cu.location
+        sca: mathutils.Vector = cu.scale
         rot: mathutils.Euler = cu.rotation_euler
         return cls(p0, p1, p2, p3, 
                    name = name,
-                   location=loc, 
+                   location = loc, 
+                   scale = sca,
                    rotation = rot,
                    start_handle_left = start_handle_left,
                    end_handle_right = end_handle_right
@@ -480,6 +488,7 @@ class Bezier(CurveObject):
         of the JavaScript code in the ref above int Python.
         """
         loc = self.location
+        sca = self.scale
         rot = self.rotation
         if t0 == 0.0 and t1 is not None: 
             return self.split(t1)[0]
@@ -506,12 +515,11 @@ class Bezier(CurveObject):
             t11 = self.map_split_to_whole(1) 
 
 
-            result = [Bezier(p[0], new1, new4, new6, t0 = t00, t1 = t10, location = loc, rotation = rot), 
-                      Bezier(new6, new5, new3, p[3], t0 = t01, t1 = t11, location = loc, rotation = rot)]
+            result = [Bezier(p[0], new1, new4, new6, t0 = t00, t1 = t10, location = loc, scale = sca, rotation = rot), 
+                      Bezier(new6, new5, new3, p[3], t0 = t01, t1 = t11, location = loc, scale = sca, rotation = rot)]
 
             # The new split curves should keep track for the original 
-            # parameter values at the end points. 
-
+            # parameter values at the end points (t0 and t1).
             if t1 is None:
                 return result
             else: 
@@ -530,21 +538,29 @@ class Bezier(CurveObject):
         """Splits out the subsegment between t0 and t1. 
         If the curves have been previously split, we can insert the parameter
         of the original whole curve where we want to split the curve."""
-        loc = self.location
-        rot = self.rotation
 
         p0 = self(t0)
         p3 = self(t1)
-        scale = (t1 - t0) / 3
+        factor = (t1 - t0) / 3
         d1 = self.eval_derivative(t0)
-        p1 = p0 + scale * d1
+        p1 = p0 + factor * d1
         d2 = self.eval_derivative(t1)
-        p2 = p3 - scale * d2
+        p2 = p3 - factor * d2
 
         t0new = self.map_split_to_whole(t0)
         t1new = self.map_split_to_whole(t1)
 
-        return Bezier(p0, p1, p2, p3, t0 = t0new, t1 = t1new, location = loc, rotation = rot)
+        # TODO: The below name is perhaps not so good.
+        name = self.name + '(' + str(t0new) + ',' + str(t1new) + ')'
+        loc = self.location
+        sca = self.scale
+        rot = self.rotation
+        return Bezier(p0, p1, p2, p3,
+                      t0 = t0new, t1 = t1new,
+                      name = name,
+                      location = loc,
+                      scale = sca,
+                      rotation = rot)
 
     def split2(self, *parameters: float):
         """Split the curve at parameters. Returns a list of the split segments."""
@@ -585,6 +601,7 @@ class Bezier(CurveObject):
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
+        ob.scale = self.scale
         ob.rotation_euler = self.rotation
         bpy.data.collections['Collection'].objects.link(ob)
         ob.data.resolution_u = 64
@@ -702,6 +719,7 @@ class Bezier(CurveObject):
             if offset is not None:
                 for bez in offset:
                     bez.location = self.location
+                    bez.scale = self.scale
                     bez.rotation = self.rotation
                 loffsets.extend(offset)
         if double_side:
@@ -712,7 +730,11 @@ class Bezier(CurveObject):
                 offset = off.find_cubic_approximation()
                 if offset is not None:
                     for bez in offset:
+                        # TODO: In case we just create the splines directly,
+                        # location, etc, can be set in the resulting spline
+                        # only.
                         bez.location = self.location
+                        bez.scale = self.scale
                         bez.rotation = self.rotation
                 roffsets.extend(offset)
         return [loffsets, roffsets]
@@ -834,7 +856,6 @@ class Bezier(CurveObject):
             if (bez0.t0 < TUPLE_FILTER_THRESHOLD or bez0.t1 > 1.0 - TUPLE_FILTER_THRESHOLD) and (c2.t0 < TUPLE_FILTER_THRESHOLD or c2.t1 > 1.0 - TUPLE_FILTER_THRESHOLD):
                 return []
             else: 
-                print("ADDED", [(bez0.t0, bez0.t1, c2.t0, c2.t1)])
                 return [(bez0.t0, bez0.t1, c2.t0, c2.t1)]
 
         cc1 = bez0.split2(0.5)
@@ -953,7 +974,8 @@ class Spline(CurveObject):
                  is_closed = False, 
                  strokewidth = 0.01,
                  name = "Spline",
-                 location = mathutils.Vector((0,0,0)),
+                 location = mathutils.Vector((0.0 ,0.0, 0.0)),
+                 scale = mathutils.Vector((1.0, 1.0, 1.0)),
                  rotation = mathutils.Euler((0,0,0), 'XYZ'),
                  ):
 
@@ -976,7 +998,7 @@ class Spline(CurveObject):
             bezier.t0 = 0.0
             bezier.t1 = 1.0
 
-        super().__init__(name, location, rotation)
+        super().__init__(name, location, scale, rotation)
 
     @classmethod
     def from_Blender(cls, name: str):
@@ -984,6 +1006,7 @@ class Spline(CurveObject):
         cu = bpy.data.collections['Collection'].objects[name]
         beziers = []
         loc = cu.location
+        sca = cu.scale
         rot = cu.rotation_euler
         spline = cu.data.splines[0]
         is_closed = spline.use_cyclic_u
@@ -996,25 +1019,35 @@ class Spline(CurveObject):
             p2 = bezier_points[j + 1].handle_left
             p3 = bezier_points[j + 1].co
             handle_right = bezier_points[j + 1].handle_right
-            beziers.append(Bezier(p0, p1, p2, p3, location = loc, 
+            beziers.append(Bezier(p0, p1, p2, p3, 
+                                  location = loc, 
+                                  scale = sca, 
                                   rotation = rot,
                                   start_handle_left = handle_left, 
                                   end_handle_right = handle_right
                                   ))
 
         return cls(*beziers, 
-                   name=name, 
-                   location=loc, 
-                   rotation=rot,
+                   name = name, 
+                   location = loc, 
+                   scale = sca,
+                   rotation = rot,
                    is_closed = is_closed,
                   )
 
     @CurveObject.location.setter
-    def location(self, loc: mathutils.Vector):
+    def location(self, location: mathutils.Vector):
         """Set the location in world space of the Spline and all the Bezier curves."""
         for bez in self.beziers:
-            bez.location = loc
-        self._location = loc
+            bez.location = location
+        self._location = location
+
+    @CurveObject.scale.setter
+    def scale(self, scale: mathutils.Vector):
+        """Sets the scale of the Spline and propagate it to all bezier curves."""
+        for bez in self.beziers:
+            bez.scale = scale
+        self._scale = scale
 
     @CurveObject.rotation.setter
     def rotation(self, rot: mathutils.Euler):
@@ -1028,14 +1061,15 @@ class Spline(CurveObject):
         self.beziers = list(reversed(self.beziers))
 
     def append_spline(self, spline):
-        """
-        Add curve to the this curve at the end. 
+        """Add curve to the this curve at the end. 
         The start point and handles of spline will be
         moved to match with self's endpoint
         """
         a = len(self.beziers)
         last_bez = self.beziers[-1]
         loc = self.location
+        sca = self.scale
+        rot = self.rotation
         s_loc = spline.location
         # Make new Bezier curves, since we do not want to modify spline.
         for bez in spline.beziers: 
@@ -1045,7 +1079,10 @@ class Spline(CurveObject):
             p3 = bez.points[3] + s_loc - loc
             shl = bez.start_handle_left
             ehr = bez.end_handle_right
-            self.beziers.append(Bezier(p0, p1, p2, p3, loc, start_handle_left = shl, end_handle_right = ehr))
+            self.beziers.append(
+                Bezier(p0, p1, p2, p3,
+                       start_handle_left = shl, end_handle_right = ehr,
+                       location = loc, scale = sca, rotation = rot))
         
         # Move the start point of spline so that it matches the 
         # end point of self. 
@@ -1117,6 +1154,7 @@ class Spline(CurveObject):
         cu = bpy.data.curves.new(self.name, 'CURVE')
         ob = bpy.data.objects.new(self.name, cu)
         ob.location = self.location
+        ob.scale = self.scale
         ob.rotation_euler = self.rotation
         bpy.data.collections["Collection"].objects.link(ob)
         ob.data.resolution_u = 64
@@ -1181,11 +1219,34 @@ class Spline(CurveObject):
         # Pair the curves.
         pairs = itertools.combinations(enumerate(self.beziers), 2)
         # Remove pairs which do not have overlapping bounding boxes. 
-        pairs = [pair for pair in pairs if pair[0][1].overlaps(pair[1][1])]
+        pairs = iter(pair for pair in pairs if pair[0][1].overlaps(pair[1][1]))
         for pair in pairs:
             results = pair[0][1].curve_intersections(pair[1][1], threshold)
             if results:
                 intersections[pair[0][0], pair[1][0]] = results
+        return intersections
+
+    def intersections(self, other: Spline, threshold = INTERSECTION_THRESHOLD):
+        """This should perhaps only intersect the two curves. 
+        We already have self intersections via the other function."""
+
+        """Self intersections: dict: 
+        - Key (i), value: (tia, tib): the i:th Bezier intersects itself at tia and tib. 
+        - Key (i, j), value: (tia, tib, tja, tjb): the i:th Bezier intersects the j:th Bezier at (tia approx tib)
+        and (tja approx tjb)
+
+        Intersectoins: dict:
+        - Key (i, j), value (tia, tib, tja, tjb): the i:th Bezier of self intersect the j:th Bezier of other.
+        """
+        intersections = {}
+        self_enumerate = enumerate(self.beziers)
+        other_enumerate = enumerate(other.beziers)
+        pairs = itertools.product(self_enumerate, other_enumerate)
+        pairs = iter(pair for pair in pairs if pair[0][1].overlaps(pair[1][1])) 
+        for pair in pairs: 
+            result = pair[0][1].curve_intersections(pair[1][1], threshold)
+            if result: 
+                intersections[pair[0][0], pair[1][0]] = result
         return intersections
 
     def start_point(self, world_space = False):
@@ -1642,17 +1703,3 @@ def ray_intersect(p0: mathutils.Vector, d0: mathutils.Vector, p1: mathutils.Vect
     det = d0.x * d1.y - d0.y * d1.x
     t = (d0.x * (p0.y - p1.y) - d0.y * (p0.x - p1.x)) / det
     return mathutils.Vector((p1.x + d1.x * t, p1.y + d1.y * t))
-
-
-# Testing values relevant for trying to "approximate" another cubic
-# with positions 
-# mathutils.Vector((0.0, 0.0, 0.0)), 
-# mathutils.Vector((1.2317887544631958, 0.9850826859474182, 0.002845139242708683))
-# mathutils.Vector((2.3887062072753906, 0.602931022644043, -0.0027865534648299217))
-# mathutils.Vector((2.999779224395752, 0.0, 0.0))
-# mx = 1.869782404656517
-# a = 1.2274109939627678
-# th0 = 0.6745684953714891
-# th1 = 2.362901117301283
-# x3 = 2.999779224395752
-
