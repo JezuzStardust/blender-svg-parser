@@ -1226,7 +1226,7 @@ class Spline(CurveObject):
                 intersections[pair[0][0], pair[1][0]] = results
         return intersections
 
-    def intersections(self, other: Spline, threshold = INTERSECTION_THRESHOLD):
+    def intersections(self, other: 'Spline', threshold = INTERSECTION_THRESHOLD):
         """This should perhaps only intersect the two curves. 
         We already have self intersections via the other function."""
 
