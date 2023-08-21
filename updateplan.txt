@@ -1,0 +1,44 @@
+1. Fix bug whe USE:ing SVGGeometrySYMBOL. 
+	The bug can be that width and height of the <symbol> are not taken into account. 
+	Wierdly, my code does exactly what Safari does, so perhaps this is inline with SVG 1.1? 
+	However, my code does not treat SYMBOL and SVG differently (I think). 
+	Check what is done when using these in the USE-node.
+
+	Solved: This was, indeed, a difference between SVG 1.1 and SVG 2.0. I have now updated it to be compatible with the release candidate of the SVG 2.0 specification. 
+	It might be interesting to try to make the parser compatible with both specifications. 
+	The only thing needed is to catch the SVG tag that specifies the version and then use the corresponding version of the <use> node. 
+
+2. Everything has id, class, and style. 
+Put this in the SVGGeometry base class. 
+Currently we have name there instead of class/id. Parse each separtely.
+A general restructuring should be done. 
+I am planning on doing this with multiple inheritance using mixin classes. Se below.  
+
+3. Make USE more agnostic to what is being used. 
+	Perhaps, instead we should use try/accept and try to call a special function in the class being used. 
+	The special handles for SVGGeometrySVG and SVGGeometrySYMBOL can then be put in there. 
+	A potential problem is then that these functions need to know about the viewport and viewBox of the parent. 
+	Think this through carefully.
+
+4. Make mixin classes for viewport.
+	The three classes that needs this are: SVGGeometrySVG, SVGGeometrySYMBOL and SVGGeometryUSE, and the only current comon ancestor is SVGGeometry, so I put all code there. 
+	Instead, move the _viewport attribute and the parsing code, etc, to the mixin. 
+
+5. Introduce special class for points, beziers, splinets, etc? 
+	In this case, we should make sure that all the methods are done in a numerical stable way, e.g., avoiding canellation errrors etc.
+	Will do this in order to be able to implement offsets. 
+	
+	On the other hand, most of what will be needed is done directly by Blender. 
+	So, the only thing really needed is to make all geometry store their data in the same way. 
+	This could be one special class (e.g. Spline). 
+	Perhaps, we could have a container class for Splines which allows for the fact that some paths are multi-component. 
+
+6. Instead of trying to approximate strokes using bezier curves, make a temporary solution where strokes are done via the curve settings. 
+	Create a straight path of length equal to the stroke width (transformed correctly). 
+	Use that path as a bevel in the curve that needs a stroke. 
+	Add paths for the end caps, e.g. circles, or square (is that all that is needed?). 
+	The only thing that will not be correct is stroke, line-join (arcs, bevel, meter-clip and round). 
+	These can probably be fixed by adding specific geometry at correct positions, e.g. a ball. 
+
+7. In the future, study how this is done in Inkscape or rather via the method described in Raph Levien's blog! 
+This work has been started.

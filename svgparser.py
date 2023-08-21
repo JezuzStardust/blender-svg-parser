@@ -24,7 +24,7 @@
 
 # TODO (longterm):
 # - Add more features of SVG.
-#   - Opacity
+#   - Opacity.
 #   - Stroke: Do this with Blenders curve bevel and use a rectangle with zero height. 
 #             The end-caps can be added as circles or rectangles.
 #             The end-caps should be parented to vertices and all transformations 
@@ -77,8 +77,8 @@
 # In the second pass over we also create the Blender spines and insert them into Blender. 
 
 import bpy
-from math import tan, sin, cos, acos, sqrt, pi # May not be needed later. Use numpy instead.
-from mathutils import Matrix, Vector  # May not be needed if numpy is used instead.
+from math import tan, sin, cos, acos, sqrt, pi
+from mathutils import Matrix, Vector
 import os
 # import numpy as np
 import xml.dom.minidom
@@ -102,7 +102,6 @@ class SVGGeometry:
         "_transform",
         "_style",
         "_context",
-        "_viewport",
         "_name",
     )
 
@@ -114,12 +113,6 @@ class SVGGeometry:
         self._transform = Matrix()
         self._style = svgutils.SVG_EMPTY_STYLE
         self._context = context
-        self._viewport = None
-        # TODO: Should all these really be here?
-        # - viewport only in SVG and USE but this is the only common parent.
-        # Add extra class and subclass that? SVGGeometryViewPort(SVGGeometry)?
-        # - preserveAspectRatio only in SVG
-        # - viewBox and transform in all except for SVG.
         self._name = None
 
     def parse(self):
@@ -129,9 +122,6 @@ class SVGGeometry:
         but _parse_transform checks if these attributes actually exists.
         """
         if type(self._node) is xml.dom.minidom.Element:
-            # TODO: These could be done with side-effects instead. 
-            # In that case they should be renamed. 
-            # E.g., _parse_style_and_store or similar.
             self._style = self._parse_style()
             self._transform = self._parse_transform()
             # If the node has an id or class store reference to the instance
@@ -139,10 +129,11 @@ class SVGGeometry:
             for attr in ("id", "class"):
                 id_or_class = self._node.getAttribute(attr)
                 if id_or_class:
+                    print("SVGGeometry parse id_or_class: ", id_or_class)
                     # For elements with both: keep only id.
                     if self._context["defs"].get("#" + id_or_class) is None:
                         self._context["defs"]["#" + id_or_class] = self
-                    if not self._name:
+                    if not self._name: # Why this if? Can we accidentally overwrite names?
                         self._name = id_or_class
 
     def _parse_style(self):
@@ -191,18 +182,6 @@ class SVGGeometry:
                 m = m @ transform_function(params)
         return m
 
-    def _parse_viewport(self):
-        """Parse the x, y, width, and height attributes."""
-        # TODO: Only SVG and USE can establish viewport,
-        # We could do multiple inheritance but that 
-        # could get messy I think.  
-        # See also __init__ for alternative. 
-        vp_x = self._node.getAttribute("x") or "0"
-        vp_y = self._node.getAttribute("y") or "0"
-        vp_width = self._node.getAttribute("width") or "100%"
-        vp_height = self._node.getAttribute("height") or "100%"
-        return (vp_x, vp_y, vp_width, vp_height)
-
     def _push_transform(self, transform):
         """Push the transformation matrix onto the stack."""
         m = self._context["current_transform"]
@@ -240,9 +219,10 @@ class SVGGeometry:
             material = self._get_material_with_color(style["fill"])
             obj.data.materials.append(material)
 
-        # Test by translating the curves a bit in the z-direction for every layer. 
-        m = Matrix.Translation((0, 0, 0.000015))
-        self._push_transform(m)
+        # TODO: Come up with a good way of using this. 
+        #Test by translating the curves a bit in the z-direction for every layer. 
+        # m = Matrix.Translation((0, 0, 0.000015))
+        # self._push_transform(m)
 
         return obj.data
 
@@ -485,25 +465,25 @@ class SVGGeometrySVG(SVGGeometryContainer):
     """
 
     __slots__ = ("_viewBox",
+                 "viewport",
                  "_preserveAspectRatio",
                  )
 
     def __init__(self, node, context):
         super().__init__(node, context)
-        # If this is the outer most SVG, then store this instance in
-        # the dictionary for later use.
-        if not self._context["outermost_SVG"]:
+        if not self._context["outermost_SVG"]: # Store outermost SVG.
             self._context["outermost_SVG"] = self
+        # TODO: Check that outermost viewport always have viewBox defined.
+        # Otherwise set it to default values.
 
     def parse(self):
         """Parse the attributes of the SVG element.
-        The viewport (x, y, width, height) cannot actually be parsed at this time
-        since they require knowledge of the ancestor viewBox in case the values
+        The viewport (x, y, width, height) cannot actually be calculate at this time
+        since they require knowledge of the ancestor/parent viewBox in case the values
         are given in percentages.
+        This method simply read the values and units of the element in the svg-file.
         """
-        # _parse_viewport is used both by this and USE. 
-        # The function is therefore in the base class.
-        self._viewport = self._parse_viewport()
+        self.viewport = self._parse_viewport()
         self._viewBox = self._parse_viewBox()
         self._preserveAspectRatio = self._parse_preserveAspectRatio()
         super().parse()
@@ -523,27 +503,24 @@ class SVGGeometrySVG(SVGGeometryContainer):
         if not viewBox:
             viewBox = self._calculate_viewBox_from_viewport()
         self._push_viewBox(viewBox)
+
         super().create_blender_splines()
         self._pop_viewBox()
         self._pop_transform(self._transform)
         self._pop_transform(viewport_transform)
 
-    def get_viewport(self):
-        """Return the viewport.
-        """
-        # Mainly done this way since I wanted to define _viewport as pseudo private.
-        # TODO: This might be ridiculous.
-        return self._viewport
-
-    def set_viewport(self, viewport):
-        """Used to set the private _viewport from outside."""
-        # TODO: Although this makes sense, since _viewport is pseudo-private,
-        # it might be ridiculous to do this. 
-        self._viewport = viewport
+    def _parse_viewport(self):
+        """Parse the x, y, width, and height attributes."""
+        vp_x = self._node.getAttribute("x") or "0"
+        vp_y = self._node.getAttribute("y") or "0"
+        vp_width = self._node.getAttribute("width") or "100%"
+        vp_height = self._node.getAttribute("height") or "100%"
+        return (vp_x, vp_y, vp_width, vp_height)
 
     def _parse_viewBox(self):
         """Parse the viewBox attribute.
         """
+        # TODO: Should we check for outermost viewBox here?
         viewBox = self._node.getAttribute("viewBox")
         if viewBox:
             min_x, min_y, width, height = viewBox.replace(",", " ").split()
@@ -584,7 +561,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
         Used when there is not viewBox present.
         """
         current_viewBox = self._context["current_viewBox"]
-        viewport = self._viewport
+        viewport = self.viewport
         viewBox_width = svgutils.svg_parse_coord(
             viewport[2], current_viewBox[2])
         viewBox_height = svgutils.svg_parse_coord(
@@ -597,7 +574,7 @@ class SVGGeometrySVG(SVGGeometryContainer):
         an equivalent transform.
         """
         viewBox = self._viewBox
-        viewport = self._viewport
+        viewport = self.viewport
         preserveAspectRatio = self._preserveAspectRatio
         current_viewBox = self._context["current_viewBox"]  # Parent's viewBox
 
@@ -769,7 +746,7 @@ class SVGGeometryRECT(SVGGeometry):
         else:
             rounded = False
         # Approximation of elliptic curve for corner.
-        # Put the handles semi minor(or major) axis radius times
+        # Put the handles semi minor(or semi major) axis radius times
         # factor = (sqrt(7) - 1)/3 away from Bezier point.
         # http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
         factor_x = rx * (sqrt(7) - 1) / 3
@@ -851,6 +828,23 @@ class SVGGeometryRECT(SVGGeometry):
             # (coordinate, handle_left, handle_right)
             # If a handle is None, it means that it will be a straight line
             # (vector handle).
+            #                   o (HR8)                            o (HL3)
+            #                   .                                  .
+            #          (HL1)    . (P1)                       (P2)  .   (HR2)
+            #               o.....o------------------------------o.....o
+            #                   ./                                \.
+            #                   o (P8)                             o (P3) 
+            #                   |                                  |
+            #                   |                                  |
+            #                   o (P7)                             o (P4)
+            #                   .\                                /.
+            #         (HR6) o.....o------------------------------o.....o (HL5)
+            #                   . (P6)                       (P5)  .
+            #                   .                                  .
+            #                   o                                  o
+            #                   (HL7)                              (HR4)
+            #
+            # coords = [ ( (P1), (HL1), (HR1) ), ( (P2), (HL2), (HR2) ), ... ]
             coords = [
                 ((x + rx, y), (x + rx - factor_x, y), None),
                 ((x + w - rx, y), None, (x + w - rx + factor_x, y)),
@@ -885,7 +879,6 @@ class SVGGeometryRECT(SVGGeometry):
     def _new_point(coordinate, handle_left=None, handle_right=None, in_type=None, out_type=None):
         """Not currently used."""
         # TODO: Remove this?
-
         return {
             "coordinates": coordinate,
             "handle_left": handle_right,
@@ -1249,8 +1242,8 @@ class SVGPATHParser:
         But we also need to update it when we add the next point (specifically the
         handles).
         """
-        if self._current_spline is None:
-            return None
+        if self._current_spline is None: # Will this ever happen?
+            return None # TODO: Fix this!
         else:
             return self._current_spline[-1]
 
@@ -1444,8 +1437,8 @@ class SVGPATHParser:
         """
         # A|a rx ry x_axis_rotation large_arc_flag sweep_flag x y
         # This is complicated for two reasons.
-        # First: The arc is a bit hard to infer from the data (with the flags etc).
-        # Second: An ellipse can only be approximated with a Bézier curve.
+        # 1. The arc is a bit hard to infer from the data (with the flags etc).
+        # 2. An ellipse can only be approximated with a Bézier curve.
         # References:
         # For the first problem: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
         # For the second problem: http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf
@@ -1509,9 +1502,7 @@ class SVGPATHParser:
         Calculates the center point parametrization of the elliptical arc.
         """
         # Ref: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
-        # TODO: Consider using numpy for this.
-        # There is a lot of vector algebra going on.
-        # Many things can be simplified a lot (and perhaps sped up).
+        # TODO: Fix arc_to command when 
         angle *= pi / 180
         xp = cos(angle) * (x1 - x2) / 2 + sin(angle) * (y1 - y2) / 2
         yp = -sin(angle) * (x1 - x2) / 2 + cos(angle) * (y1 - y2) / 2
@@ -1519,9 +1510,6 @@ class SVGPATHParser:
         if rx == 0 or ry == 0:
             print("DRAW A LINE INSTEAD!",
                   "Called from _calculate_arc in SVGPATHParser")
-        # TODO: Consider making rx, ry an instance variable.
-        # In that case it does not have to be passed back by
-        # the function.
         rx, ry = self._correct_radii(rx, ry, xp, yp)
         fac = sqrt(
             abs(rx ** 2 * ry ** 2 - rx ** 2 * yp ** 2 - ry ** 2 * xp ** 2)
@@ -1567,7 +1555,7 @@ class SVGPATHParser:
         #    Otherwise rx = sqrt(gamma) * rx, ry = sqrt(gamma) * ry.
         # 4. Continue with the calculations
         if rx == 0 or ry == 0:
-            return None  # Set a flag somewhere.
+            return None # TODO: Should not happen, since we should check for this. 
         rx = abs(rx)
         ry = abs(ry)
         gamma = xp ** 2 / rx ** 2 + yp ** 2 / ry ** 2
@@ -1656,7 +1644,8 @@ class SVGGeometryDEFS(SVGGeometryContainer):
     """
     Handles the <defs> element.
     """
-    # TODO: This is wrong. It should not render directly.
+    # TODO: This is wrong. It should not render directly? Or is it?
+    # TODO: Test if this renders directly. I do not think so!
 
     pass
 
@@ -1664,36 +1653,42 @@ class SVGGeometryDEFS(SVGGeometryContainer):
 class SVGGeometryUSE(SVGGeometry):
     """<use> element.
     """
-
-    __slots__ = ("_href")
+    __slots__ = ("_href", "viewport")
     # TODO: The name should come from the original element (e.g., symbol or earlier <d> etc.  
     # Right now the name comes from the shape, but in case symbol has a separate
     # name, then that name should probably be the one that is used.
     # E.g. if a symbol is named 'id=hej' and it creates a circle and a rect,
     # then the circle and the rect should be called hej and hej.001
     # or perhaps circle:hej and rect:hej or similar.
-    # TODO: Should this perhaps be an SVGGeometrySVG or perhaps a G?
+
+    def __init__(self, node, context):
+        SVGGeometry.__init__(self, node, context)
+        self._href = None
 
     def parse(self):
         super().parse()
+        self.viewport = self._parse_viewport()
+
+        self._href = self._node.getAttribute("href") or self._node.getAttribute("xlink:href")
+
+    def _parse_viewport(self):
         vp_x = self._node.getAttribute("x") or "0"
         vp_y = self._node.getAttribute("y") or "0"
         vp_width = self._node.getAttribute("width") or None
         vp_height = self._node.getAttribute("height") or None
-        self._viewport = (vp_x, vp_y, vp_width, vp_height)
-
-        self._href = self._node.getAttribute("xlink:href")
+        return (vp_x, vp_y, vp_width, vp_height)
 
     def create_blender_splines(self):
         """
         Create Blender curves objects for the referenced element.
         """
+        print(self._context["defs"])
         # Get the current viewBox.
         # Parse the coords with respect to the width and height of the vB.
         # Then add a translation corresponding to the placement attributes x, y.
         current_viewBox = self._context["current_viewBox"]
-        x = svgutils.svg_parse_coord(self._viewport[0], current_viewBox[2])
-        y = svgutils.svg_parse_coord(self._viewport[1], current_viewBox[3])
+        x = svgutils.svg_parse_coord(self.viewport[0], current_viewBox[2])
+        y = svgutils.svg_parse_coord(self.viewport[1], current_viewBox[3])
         translation = Matrix.Translation((x, y, 0))
         self._push_transform(translation)
 
@@ -1705,29 +1700,40 @@ class SVGGeometryUSE(SVGGeometry):
         geom = self._context["defs"].get(self._href)
 
         # See: https://www.w3.org/TR/SVG11/struct.html#UseElement
+        # Updated for SVG2.0 now. 
         if geom is not None:
+            print("Using geom: ", geom.__class__)
             geom_class = geom.__class__
             # If the referenced element is an SVG or a SYMBOL element...
             if geom_class == SVGGeometrySVG:
                 # ...then save the current viewport of that class...
-                old_viewport = geom.get_viewport()
+                old_viewport = geom.viewport
                 # ...and replace the width and height with the corresponding
                 # values from the use element if present.
-                width = self._viewport[2] or old_viewport[2]
-                height = self._viewport[3] or old_viewport[3]
-                geom.set_viewport(
-                    (old_viewport[0], old_viewport[1], width, height))
+                width = self.viewport[2] or old_viewport[2]
+                height = self.viewport[3] or old_viewport[3]
+                geom.viewport = (old_viewport[0], old_viewport[1], width, height)
                 geom.create_blender_splines()
                 # Reset the old viewport in case geom is referenced again later.
-                geom.set_viewport(old_viewport)
+                geom.viewport = old_viewport
             elif geom_class == SVGGeometrySYMBOL:
-                old_viewport = geom.get_viewport()
-                width = self._viewport[2] or "100%"
-                height = self._viewport[3] or "100%"
-                geom.set_viewport(
-                    (old_viewport[0], old_viewport[1], width, height))
+                # TODO: With SVG2.0 this does exactly the same thing as 
+                # for SVGGeometrySVG. Combine these to one.
+                # In case we want to allow for both standards, then 
+                # figure out how to determine the standard of the file
+                # and use that as a switch to correct the value. 
+                old_viewport = geom.viewport
+                print("Old viewport", old_viewport)
+                # Override the values of the SYMBOLS viewport?
+                # width = self.viewport[2] or "100%"
+                # height = self.viewport[3] or "100%"
+                width = self.viewport[2] or old_viewport[2]
+                height = self.viewport[3] or old_viewport[3]
+                geom.viewport = (old_viewport[0], old_viewport[1], width, height)
+                print("New vieport again: ", (old_viewport[0], old_viewport[1], width, height))
                 geom.create_blender_splines()
-                geom.set_viewport(old_viewport)
+                print("New viewport", geom.viewport)
+                geom.viewport = old_viewport
             elif geom_class is SVGGeometryDEFS:  
                 # TODO: DEFS cannot be directly referenced by USE since they do not have id!
                 # Unclear what to do here? 
@@ -1763,7 +1769,6 @@ class SVGLoader(SVGGeometryContainer):
     """Parse an SVG file and creates curve objects in Blender."""
 
     # TODO: Fix so that do_colormanage is done as in the original plugin. 
-    
 
     def __init__(self, blender_context, svg_filepath, origin="TL", depth="0"):
         """Initialize the loader.
@@ -1792,6 +1797,7 @@ class SVGLoader(SVGGeometryContainer):
         The `depth` parameter can be read from, e.g., dvisvgm in case the SVG-file 
         is generated from a LaTeX source. 
         """
+        print("HEEEJ")
         svg_name = os.path.basename(svg_filepath)
         scene = blender_context.scene
         # TODO: Should an SVG-file really result in a new collection?
@@ -1804,7 +1810,10 @@ class SVGLoader(SVGGeometryContainer):
         node = xml.dom.minidom.parse(svg_filepath)
 
         # Translate from pixels (assuming 96 pixels/inches) to Blenders units (meters).
-        # 96 pixels/inch, 0.3048 meter/feet, 12 inches per feet.
+        # scale is the number of meters per pixel. 
+        # 96 pixels/inch, 0.3048 meter/feet, 12 inches/feet.
+        # 0.3048 meters/feet / (96 pixels/inch * 12 inches/feet)  
+        # 0.3048 / (96 * 12 ) meters/pixel  
         scale = 1 / 96 * 0.3048 / 12
         m = Matrix()
         m = m @ Matrix.Scale(scale, 4, Vector((1, 0, 0)))

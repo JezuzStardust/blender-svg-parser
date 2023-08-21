@@ -1,0 +1,215 @@
+@startuml
+/' skinparam classBackgroundColor Wheat|CornflowerBlue '/
+class SVGGeometry {
+	_node
+	_transform
+	_style
+	_context
+	_viewport
+	_name
+	__init__()
+	parse()
+	_parse_style()
+	_parse_transform()
+	_parse_viewport()
+	_push_transform(transform)
+	_pop_tranfsorm(transform)
+	_transform_coord(co)
+	_new_blender_curve_object(name)
+	_new_spline_to_blender_curve(curve_object_data, is_cyclic)
+	_new_blender_curve(name, is_cyclic)
+	_add_points_to_blender(coords, spline)
+	_get_material_with_color(color)
+	_calculate_style_in_context()
+	_push_style(style)
+	_pop_style()
+	_get_name_from_node()
+	_print_hierarchy(level=0)
+
+}
+class SVGGeometryContainer extends SVGGeometry{
+	_geometries
+	__init__(node, context)
+	parse()
+	create_blender_splines()
+	create_phovie_objects()
+	__repr__()
+	print_hierarchy(level=0)
+}
+
+class SVGGeometrySVG extends SVGGeometryContainer
+{
+viewport
+_viewBox
+_preserveAspectRatio 
+--
+__init__()
+parse()
+create_blender_splines() 
+_view_to_transform() 
+_part_viewport()
+_parse_viewBox()
+_parse_preserveAspectRatio
+_push_viewBox(viewBox)
+_pop_viewBox(viewBox)
+_calculate_viewBox_from_viewport() 
+--SVG Attributes--
+id, class, style
+viewBox
+preserveAspectRatio
+transform
+x, y, width, height (viewport)
+}
+
+
+class SVGGeometryG extends SVGGeometryContainer
+{
+create_blender_splines()
+--Attributes--
+id, class, style
+}
+
+class SVGGeometryRECT extends SVGGeometry
+{
+_x 
+_y
+_width
+_height
+_rx
+_ry
+__init__(node, context) 
+parse() 
+create_blender_splines()
+create_phovie_objects()
+static: _new_point(coordinate, handle_left=None, handle_right=None, in_type=None, out_type=None)
+static: _new_path(is_closed=False)
+}
+
+class SVGGeometryELLIPSE extends SVGGeometry
+{
+_cx
+_cy
+_rx
+_ry
+_is_circle
+__init__(node, context) 
+parse()
+create_blender_splines()
+}
+
+class SVGGeometryCIRCLE extends SVGGeometryELLIPSE
+
+class SVGGeometryLINE extends SVGGeometry
+{
+_x1
+_y1
+_x2
+_y2 
+__init__(node, context) 
+parse()
+create_blender_splines()
+}
+
+class SVGGeometryPOLYLINE
+{
+_points
+_is_closed
+__init__(node, context)
+parse()
+create_blender_splines()
+}
+SVGGeometry <|-- SVGGeometryPOLYLINE
+
+class SVGGeometryPOLYGON
+{
+__init__(node, context) 
+}
+SVGGeometryPOLYLINE <|-- SVGGeometryPOLYGON
+
+class SVGGeometryPATH
+{
+_splines
+__init__(node, context)
+parse()
+create_blender_splines() 
+}
+SVGGeometry <|-- SVGGeometryPATH
+
+class SVGPATHParser
+{
+_data
+_index
+_current_spline
+_splines
+_commands
+_spline_start
+__init__(d)
+parse()
+get_data()
+_get_next_coord_pair(relative, previous_point)
+_get_next_coord(relative, previous_point)
+_get_last_point()
+_path_move_to(command)
+_path_line_to(command)
+_path_curve_to(command)
+_path_elliptical_arc_to(command)
+_calculate_arc( rx, ry, angle, fA, fS, x1, y1, x2, y2) 
+_correct_radii(rx, ry, xp, yp)
+_flip_handle(handle)
+_path_close(command)
+}
+
+class SVGPATHDataSupplier
+{
+_data
+_index
+_len
+__init__(d)
+eof()
+check_next()
+next()
+next_coord()
+}
+
+class SVGGeometrySYMBOL extends SVGGeometrySVG
+{
+--SVG Attributes--
+id, class, style
+preserveAspectRatio
+viewBox
+refX: left | center | right
+refY: top | center | bottom
+x, y, width, height (viewport)
+}
+
+class SVGGeometryDEFS extends SVGGeometryContainer
+{
+--SVG Attributes--
+id, class, style
+}
+
+class SVGGeometryUSE extends SVGGeometry
+{
+viewport
+_href
+--
+parse()
+create_blender_splines()
+_parse_viewport()
+--SVG Attributes--
+id, class, style
+x, y, width, height 
+height and width only
+matters if the referenced 
+element defines viewport (svg, symbol).
+If so, anything else than auto will overide
+the corresponding geometric property of that
+element.
+}
+
+class SVGLoader extends SVGGeometryContainer
+{
+__init__(blender_context, svg_filepath, origin="TL", depth="0")
+}
+
+@enduml

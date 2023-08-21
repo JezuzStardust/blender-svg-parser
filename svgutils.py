@@ -113,7 +113,7 @@ SVG_UNITS = {
 # TODO: This is really part of the parsing. 
 # Would it be possible to do this at an earlier point? 
 # Alternatively we can re-name this?
-def svg_parse_coord(coord, size=0):  # Perhaps the size should always be used.
+def svg_parse_coord(coord: str, size = 0):  # Perhaps the size should always be used.
     """
     Parse a coordinate component from a string.
     Converts the number to a common unit (pixels).
@@ -128,11 +128,8 @@ def svg_parse_coord(coord, size=0):  # Perhaps the size should always be used.
     else:
         return value * SVG_UNITS[unit]
 
-
-def read_float(text, start_index=0):
-    """
-    Reads a float value from a string, starting from start_index.
-
+def read_float(text: str, start_index = 0):
+    """Reads a float value from a string, starting from start_index.
     Returns the value as a string and the index to the first character after the value.
     """
 
@@ -143,7 +140,7 @@ def read_float(text, start_index=0):
         start_index += 1
 
     if start_index == n:
-        return "0", start_index
+        return str(0), start_index
 
     text_part = text[start_index:]
     match = re_match_number.match(text_part)
@@ -157,7 +154,6 @@ def read_float(text, start_index=0):
     end_index = start_index + match.end(0)
 
     return value_string, end_index
-
 
 def srgb_to_linear(color):
     """
@@ -177,7 +173,6 @@ def srgb_to_linear(color):
         return 0.0 if color < 0.0 else color / 12.92
     else:
         return (color + 0.055) ** 2.4
-
 
 # CONSTANTS
 
