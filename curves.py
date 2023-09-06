@@ -33,13 +33,11 @@
 # Curves
 # Again we need to think about how to init these. 
 
-# TODO: Switch to numpy. mathutils has poor precision. However, numpy is very slow in comparison...
-
-# Begin constants
+##### CONSTANTS #####
 INTERSECTION_THRESHOLD = 1e-6 # Threshold for when to stop subdividing when finding intersections.
 TUPLE_FILTER_THRESHOLD = .2e-1 # Threshold for when two intersections are assumed to be the same. 
 OFFSET_TOLERANCE = 1e-4
-# End constants
+##### END: CONSTANTS #####
 
 import mathutils
 import math
@@ -51,7 +49,7 @@ from typing import Optional
 from . import solvers
 from .gauss_legendre import GAUSS_LEGENDRE_COEFFS_32
 
-##### Utility Functions #####
+##### UTILITY FUNCTIONS #####
 def add_line(a: mathutils.Vector, b: mathutils.Vector):
     """Add a line between a and b in Blender."""
     me = bpy.data.meshes.new('Line')
@@ -94,7 +92,7 @@ def tuple_is_close(a: tuple[float, float], b: tuple[float, float], threshold = T
     comparisons = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
     return comparisons
 
-##### End Utility Functions #####
+##### END: UTILITY FUNCTIONS #####
 
 class CurveObject():
     """Base class for all curves."""
@@ -1026,7 +1024,7 @@ class Spline(CurveObject):
                                   start_handle_left = handle_left, 
                                   end_handle_right = handle_right
                                   ))
-
+        # TODO: If closed we should add the last part. 
         return cls(*beziers, 
                    name = name, 
                    location = loc, 
@@ -1211,6 +1209,8 @@ class Spline(CurveObject):
         In this case self.bezier[i](ta1) = self.bezier[j](tb1) and similar for (ta2, tb2), etc.
         """
         # TODO: Remove the middle solution of Bezier.find_self_intersections().
+        # TODO: When closed, this misses the intersections at the end Bezier (the one returning to the start point.
+        # Fix that!
         intersections = {}
         for i in range(len(self.beziers)):
             ints = self.beziers[i].find_self_intersection() 
