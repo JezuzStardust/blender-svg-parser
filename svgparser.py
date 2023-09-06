@@ -26,9 +26,11 @@
 # - Add more features of SVG.
 #   - Opacity.
 #   - Stroke: Do this with Blenders curve bevel and use a rectangle with zero height. 
-#             The end-caps can be added as circles or rectangles.
-#             The end-caps should be parented to vertices and all transformations 
-#             should then be locked. We should also set the end-cap as non-selectable. 
+#             The end-caps can be added as circles.
+#             In case the end is a square, we simply extend the curve  with a straight line 
+#             in  the tangent direction a length equal to the stroke distance.
+#             The end-caps should be parented to vertices the end vertices (in the case of a circle). 
+#             We should also set the end-cap as non-selectable. 
 #             I think this will give the best experience for the user since they can 
 #             change the shape of the object without affecting the result.
 #             The only part left to figure out is how to do miter and miterlimit. 
@@ -37,9 +39,7 @@
 #             imported into Blender.
 #             Miter is only relevant for handles that are not on a straight line.
 #             Make sure vector handles are only used for such cases!
-#   - Gradients: Could be a fun problem to solve with materials. 
-#                Must learn about texture spaces. 
-#   - Filters?
+#   - Gradients: Could be a fun problem to solve with materials. Must learn about texture spaces. 
 #   - Import as grease pencil: Could be use as an alternative or as an addition for doing strokes. 
 #   - Preserve hierarchy: The name of the object should also read off inkscape:label 
 #                         (extra love to Inkscape). 
@@ -50,10 +50,12 @@
 # 1. Parse the geometries as before. 
 # 2. At the stage where Blender objects are created, we should instead store all 
 #    transformed points in the different classes. 
+# 2a. Alternatively: Instead we can store curves.Bezier, curves.Spline, etc in the classes.
+# 2b. Probably: Create a separate data class that stores the hierarchy of curves.
 # 3. This should create a new hierarchy where, e.g., all USE nodes are replaced 
 #    in place with the corresponding geometry. 
 # 4. Equipped with this new hierarchy, we can either create Blender curves directly, 
-#    or do something else, like create the phovie classes.
+#    or do something else, like create the Phovie classes.
 # 5. Think about if this can be done in a reasonable manner so that this is also 
 #    useful for the standalone SVG-parser. 
 
@@ -1797,7 +1799,6 @@ class SVGLoader(SVGGeometryContainer):
         The `depth` parameter can be read from, e.g., dvisvgm in case the SVG-file 
         is generated from a LaTeX source. 
         """
-        print("HEEEJ")
         svg_name = os.path.basename(svg_filepath)
         scene = blender_context.scene
         # TODO: Should an SVG-file really result in a new collection?
@@ -1838,3 +1839,4 @@ class SVGLoader(SVGGeometryContainer):
             "depth": depth, # Distance from text baseline to bottom of image.
         }
         super().__init__(node, context)
+        # Call self.parse... and the other things required. 
