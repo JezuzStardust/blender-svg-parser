@@ -119,7 +119,6 @@ class SVGGeometry:
 
     def parse(self):
         """Parse the style and transformations of xml.dom.minidom.Element.
-
         Some nodes do not have style, fill, stroke, or transform, etc,
         but _parse_transform checks if these attributes actually exists.
         """
@@ -135,7 +134,7 @@ class SVGGeometry:
                     # For elements with both: keep only id.
                     if self._context["defs"].get("#" + id_or_class) is None:
                         self._context["defs"]["#" + id_or_class] = self
-                    if not self._name: # Why this if? Can we accidentally overwrite names?
+                    if not self._name: 
                         self._name = id_or_class
 
     def _parse_style(self):
@@ -392,7 +391,11 @@ class SVGGeometry:
         return name
 
     def print_hierarchy(self, level=0):
-        print(level * "\t" + str(self.__class__))
+        if self._name: 
+            print(level * "\t" + str(self.__class__) + " " + self._name)
+        else: 
+            print(level * "\t" + str(self.__class__))
+
 
 
 class SVGGeometryContainer(SVGGeometry):
@@ -457,7 +460,10 @@ class SVGGeometryContainer(SVGGeometry):
         return string
 
     def print_hierarchy(self, level=0):
-        print(level * "\t" + str(self.__class__))
+        if self._name: 
+            print(level * "\t" + str(self.__class__) + " " + self._name)
+        else: 
+            print(level * "\t" + str(self.__class__))
         for geo in self._geometries:
             geo.print_hierarchy(level=level+1)
 
@@ -966,7 +972,6 @@ class SVGGeometryELLIPSE(SVGGeometry):
         self._push_transform(self._transform)
         self._add_points_to_blender(coords, spline)
         self._pop_transform(self._transform)
-
 
 class SVGGeometryCIRCLE(SVGGeometryELLIPSE):
     """
@@ -1646,9 +1651,6 @@ class SVGGeometryDEFS(SVGGeometryContainer):
     """
     Handles the <defs> element.
     """
-    # TODO: This is wrong. It should not render directly? Or is it?
-    # TODO: Test if this renders directly. I do not think so!
-
     pass
 
 
@@ -1672,6 +1674,7 @@ class SVGGeometryUSE(SVGGeometry):
         self.viewport = self._parse_viewport()
 
         self._href = self._node.getAttribute("href") or self._node.getAttribute("xlink:href")
+        self._name = "Use: " + self._href
 
     def _parse_viewport(self):
         vp_x = self._node.getAttribute("x") or "0"
@@ -1684,7 +1687,7 @@ class SVGGeometryUSE(SVGGeometry):
         """
         Create Blender curves objects for the referenced element.
         """
-        print(self._context["defs"])
+        # print("self._context['defs']:", self._context["defs"])
         # Get the current viewBox.
         # Parse the coords with respect to the width and height of the vB.
         # Then add a translation corresponding to the placement attributes x, y.
@@ -1702,7 +1705,7 @@ class SVGGeometryUSE(SVGGeometry):
         geom = self._context["defs"].get(self._href)
 
         # See: https://www.w3.org/TR/SVG11/struct.html#UseElement
-        # Updated for SVG2.0 now. 
+        # Updated for SVG2.0.
         if geom is not None:
             print("Using geom: ", geom.__class__)
             geom_class = geom.__class__
@@ -1826,7 +1829,7 @@ class SVGLoader(SVGGeometryContainer):
         # styles etc. Do not confuse with bpy.context in Blender.
         # Shared by all classes.
         context = {
-            "current_viewBox": (0, 0, 100, 100),  # Same as viewBox_stack[-1].
+            "current_viewBox": (0, 0, 100, 100),  # Same as view Box_stack[-1].
             "viewBox_stack": [(0, 0, 0, 0)],
             "current_transform": m, # Stack of transforms from the current node to Blender coordinate space. 
             "style_stack": [], # Stores the styles of all parents at the time of curve creations.
@@ -1834,9 +1837,10 @@ class SVGLoader(SVGGeometryContainer):
             "blender_collection": collection, # The collection to which all geometry is added. See TODO above. 
             "materials": {},  # A dictionary with all defined materials.
             "do_colormanage": True, # See TODO above.
-            "outermost_SVG": None, # Keep track of the outermost SVG.
+            "outermost_SVG": None, # Keep track of the outermost SVGA.
             "origin": origin,
-            "depth": depth, # Distance from text baseline to bottom of image.
+            "depth": depth, # Distance from text baseline to bottom of image, used for curves of text. 
+            "hierarchy": [] # Store all created geometry in a hierarchy. How do one handle groups? 
         }
         super().__init__(node, context)
         # Call self.parse... and the other things required. 
