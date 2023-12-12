@@ -170,8 +170,7 @@ class Bezier(CurveObject):
                  "t0", "t1",
                  "start_handle_left",
                  "end_handle_right",
-                 "left_offset",
-                 "right_offset"
+                 "is_closed" # In Blender, a single Bezier curve can be toggled closed (it is really handled as a spline).
                  )
 
     def __init__(self, 
@@ -183,6 +182,7 @@ class Bezier(CurveObject):
                  end_handle_right: Optional[mathutils.Vector] = None, 
                  t0 = 0.0,
                  t1 = 1.0, 
+                 is_closed = False,
                  name = "Bezier", 
                  location: mathutils.Vector = mathutils.Vector((0.0, 0.0, 0.0)),
                  scale = mathutils.Vector((1.0, 1.0, 1.0)),
@@ -200,6 +200,7 @@ class Bezier(CurveObject):
         # Since Blender uses them, it is better to keep them.
         self.start_handle_left = start_handle_left
         self.end_handle_right = end_handle_right
+        self.is_closed = is_closed # In Blender, single Bezier curves can be toggled closed.
         
         # t0 and t1 give the parameter values of the parent curve in case this is created from a split. 
         # Needed for keeping track of intersections.
@@ -215,13 +216,15 @@ class Bezier(CurveObject):
         if the Blender object is a spline, only the first part of the curve will
         be imported. Use Spline.from_Blender() instead in those cases."""
         cu = bpy.data.collections['Collection'].objects[name]
-        bezier_points = cu.data.splines[0].bezier_points
+        spline = cu.data.splines[0]
+        is_closed = spline.use_cyclic_u
+        bezier_points = spline.bezier_points
         start_handle_left = bezier_points[0].handle_left
         p0: mathutils.Vector = bezier_points[0].co
         p1: mathutils.Vector = bezier_points[0].handle_right
         p2: mathutils.Vector = bezier_points[1].handle_left
         p3: mathutils.Vector = bezier_points[1].co
-        end_handle_right: mathutils.Vecor = bezier_points[1].handle_right
+        end_handle_right: mathutils.Vector = bezier_points[1].handle_right
         loc: mathutils.Vector = cu.location
         sca: mathutils.Vector = cu.scale
         rot: mathutils.Euler = cu.rotation_euler
@@ -231,7 +234,8 @@ class Bezier(CurveObject):
                    scale = sca,
                    rotation = rot,
                    start_handle_left = start_handle_left,
-                   end_handle_right = end_handle_right
+                   end_handle_right = end_handle_right,
+                   is_closed = is_closed
                    )
 
     def handle_linear(self):
@@ -626,6 +630,7 @@ class Bezier(CurveObject):
         cu = blender_curve_object or self._create_Blender_curve()
 
         spline = cu.splines[-1]
+        spline.use_cyclic_u = self.is_closed
         bezier_points = spline.bezier_points
 
         bezier_points[-1].handle_right = p[1]
@@ -951,14 +956,6 @@ class Spline(CurveObject):
     """A list of Bezier curves corresponds to a single spline object.
     For each Bezier, the end point coincide with the starting point of 
     the next curve."""
-    # TODO: Handle closed curves. 
-    # Strategy?
-    # 1. End with z. -> Always toggle closed. 
-    # 2. End point = start point but does not end with z. -> Toggle closed 
-    #    only if filled.
-    # 3. End points different and z not set. -> Toggle closed only if filled. 
-    # The above should probably not be done here, but in any code that uses
-    # this class.
     # TODO: Handle offsets when the handles at a point are not aligned!
     # TODO: Handle endcaps.
     # TODO: Handle intersections between two splines.
@@ -1008,7 +1005,9 @@ class Spline(CurveObject):
         rot = cu.rotation_euler
         spline = cu.data.splines[0]
         is_closed = spline.use_cyclic_u
+
         bezier_points = spline.bezier_points
+        # How can we do this better? 
         i = len(spline.bezier_points) - 1
         for j in range(0, i):
             handle_left = bezier_points[j].handle_left
@@ -1024,7 +1023,7 @@ class Spline(CurveObject):
                                   start_handle_left = handle_left, 
                                   end_handle_right = handle_right
                                   ))
-        # TODO: If closed we should add the last part. 
+            
         return cls(*beziers, 
                    name = name, 
                    location = loc, 
@@ -1163,7 +1162,7 @@ class Spline(CurveObject):
         """Adds the curve to Blender as splines. 
         """
         # TODO: How should we choose which collection to add the curve to? 
-        # TODO: Howe can we do this so that we reuse the add_to_Blender from Bezier?
+        # TODO: How can we do this so that we reuse the add_to_Blender from Bezier?
         #       Answer: Probably more hassle than this.
         # TODO: Move creation of curve object, linking, etc, to superclass.
 
@@ -1347,20 +1346,65 @@ class Curve(CurveObject):
     # TODO: When that is implemented, check if the location setter works properly.
     # In the end, every single Bezier within each Spline should have the same location.
 
-    def __init__(self, *splines: Spline, name = "Curve", location = mathutils.Vector((0,0,0))):
+    def __init__(self, *splines: Spline, 
+                 name = "Curve", 
+                 location = mathutils.Vector((0,0,0)), 
+                 scale = mathutils.Vector((1.0, 1.0, 1.0)),
+                 rotation = mathutils.Euler((0.0, 0.0, 0.0),'XYZ')
+                 ):
         self.splines = list(splines)
-        super().__init__(name, location)
+        super().__init__(name = name, location = location, scale = scale, rotation = rotation)
 
     @classmethod
     def from_Blender(cls, name: str):
-        # Loop over all splines, and create these (perhaps call that class.
-        # Then create the Curve from the splines created.
-        pass
+        splines = []
+        cu = bpy.data.collections['Collection'].objects[name]
+        loc = cu.location
+        sca = cu.scale
+        rot = cu.rotation_euler
+        name = cu.name
+
+        for spline in cu.data.splines: 
+            beziers = []
+            is_closed = spline.use_cyclic_u #
+            spline = cu.data.splines[0]
+            bezier_points = spline.bezier_points
+
+            # How can we do this better? 
+            i = len(spline.bezier_points) - 1
+            for j in range(0, i):
+                handle_left = bezier_points[j].handle_left
+                p0 = bezier_points[j].co
+                p1 = bezier_points[j].handle_right
+                p2 = bezier_points[j + 1].handle_left
+                p3 = bezier_points[j + 1].co
+                handle_right = bezier_points[j + 1].handle_right
+                beziers.append(Bezier(p0, p1, p2, p3, 
+                                      location = loc, 
+                                      scale = sca, 
+                                      rotation = rot,
+                                      start_handle_left = handle_left, 
+                                      end_handle_right = handle_right
+                                      ))
+
+            splines.append(Spline(*beziers, is_closed = is_closed, name = name + "_Spline", location = loc, scale = sca, rotation = rot))
+
+        return cls(*splines, 
+                   name = name, 
+                   location = loc, 
+                   scale = sca,
+                   rotation = rot,
+                  )
 
     @CurveObject.location.setter
     def location(self, loc):
+        # TODO: This is how it should be done, however, this creates a new Blender object for each spline! 
+        # Rewrite the add_to_Blender so that we can reuse them. 
         for spline in self.splines:
             spline.location = loc
+
+    # TODO: Add CurveObject.rotation.setter 
+    # TODO: Add CurveObject.scale.setter
 
     def add_spline(self, spline):
         """Add a new spline to the curve object.
@@ -1385,6 +1429,11 @@ class Curve(CurveObject):
         #self.bevellimit
         #...
         pass
+
+    def add_to_Blender(self):
+        cu = bpy.data.collections['Collection'].objects[self.name]
+        for spline in self.splines:
+            spline.add_to_Blender(blender_curve_object = cu)
 
 
 class OffsetBezier():
