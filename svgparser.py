@@ -227,19 +227,6 @@ class SVGGeometry:
 
         return obj.data
 
-    def _new_spline_to_blender_curve(self, curve_object_data, is_cyclic):
-        """
-        Adds a new spline to an existing Blender curve object and returns
-        a reference to the spline.
-        """
-        style = self._calculate_style_in_context()
-        if style["fill"] != "none":
-            is_cyclic = True
-        curve_object_data.splines.new("BEZIER")
-        spline = curve_object_data.splines[-1]
-        spline.use_cyclic_u = is_cyclic
-        return spline
-
     def _new_blender_curve(self, name, is_cyclic):
         """Create new curve object and link it to the Blender collection.
         Then add a spline to the given curve.
@@ -260,6 +247,19 @@ class SVGGeometry:
 
         obj.data.splines.new("BEZIER")
         spline = obj.data.splines[-1]
+        spline.use_cyclic_u = is_cyclic
+        return spline
+
+    def _new_spline_to_blender_curve(self, curve_object_data, is_cyclic):
+        """
+        Adds a new spline to an existing Blender curve object and returns
+        a reference to the spline.
+        """
+        style = self._calculate_style_in_context()
+        if style["fill"] != "none":
+            is_cyclic = True
+        curve_object_data.splines.new("BEZIER")
+        spline = curve_object_data.splines[-1]
         spline.use_cyclic_u = is_cyclic
         return spline
 
