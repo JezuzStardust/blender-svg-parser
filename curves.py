@@ -353,7 +353,7 @@ class Bezier(CurveObject):
         # TODO: Can probably be removed. 
         d = self.eval_derivative(t)
         sd = self.eval_second_derivative(t)
-        denom = math.pow(self.eval_derivative(t).length, 3 / 2)
+        denom = math.pow(d.length, 3 / 2)
         return (d[0] * sd[1] - sd[0] * d[1]) / denom
 
     def area(self) -> float:
