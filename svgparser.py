@@ -397,7 +397,6 @@ class SVGGeometry:
             print(level * "\t" + str(self.__class__))
 
 
-
 class SVGGeometryContainer(SVGGeometry):
     """Container class for SVGGeometry.
     Since a container has attributes such as style, and transformations,
