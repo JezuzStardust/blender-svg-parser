@@ -108,9 +108,6 @@ class SVGGeometry:
     )
 
     def __init__(self, node, context):
-        """Initialize the _node, _transform, and _style to default values. 
-        Set the _context to the context (which stores all information about the stack.
-        """
         self._node = node
         self._transform = Matrix()
         self._style = svgutils.SVG_EMPTY_STYLE
@@ -118,15 +115,11 @@ class SVGGeometry:
         self._name = None
 
     def parse(self):
-        """Parse the style and transformations of xml.dom.minidom.Element.
-        Some nodes do not have style, fill, stroke, or transform, etc,
-        but _parse_transform checks if these attributes actually exists.
-        """
+        """Parse the style and transformations of xml.dom.minidom.Element."""
         if type(self._node) is xml.dom.minidom.Element:
             self._style = self._parse_style()
             self._transform = self._parse_transform()
             # If the node has an id or class store reference to the instance
-            # then also store the name.
             for attr in ("id", "class"):
                 id_or_class = self._node.getAttribute(attr)
                 if id_or_class:
@@ -138,15 +131,11 @@ class SVGGeometry:
                         self._name = id_or_class
 
     def _parse_style(self):
-        """Parse the style attributes. 
-
-        First parse the separate style attributes (fill="red", stroke-width=".1cm", ...),
-        then parse the style-attribute (style='fill:blue;stroke:green...').
-        In SVG-files style="fill:blue;..." takes precedence over, e.g., fill="blue", 
-        so this parse order will automatically overwrite the separate style attributes 
-        if both are present. 
+        """Parse the style attributes (fill="red", stroke-width=".1cm", ...),
+        and/or (style='fill:blue;stroke:green...').
+        The latter should take precedence according to the SVG specification
+        Overwrites the first type if both are present. 
         """
-        # Dict is mutable so we need to make a separate copy.
         style = svgutils.SVG_EMPTY_STYLE.copy() 
 
         for attr in svgutils.SVG_EMPTY_STYLE.keys():
@@ -168,8 +157,7 @@ class SVGGeometry:
         return style
 
     def _parse_transform(self):
-        """Parse the transform attribute on the xml.dom.minidom.Element.
-        """
+        """Parse the transform attribute on the xml.dom.minidom.Element."""
         transform = self._node.getAttribute("transform")
         m = Matrix()
         if transform:
@@ -196,15 +184,23 @@ class SVGGeometry:
 
     def _transform_coord(self, co):
         """Transform the vector co with the current transform. 
-        Return the resulting vector.
-        """
+        Return the resulting vector."""
         m = self._context["current_transform"]
         v = Vector((co[0], co[1], 0))
-
         return m @ v
 
     def _new_blender_curve_object(self, name):
         """Create new curve object and add it to the Blender collection."""
+
+        # Create a new curve in the data collection. 
+        # Create a new (Blender) object with the curve as data. 
+        # Link the object to the scene collection. 
+        # Set the dimension of the object data to "2D". 
+        # Set fill_mode of the object data to "NONE" or "BOTH" depending
+        # on whether the curve is filled or not. 
+        # Create a material with the correct color.
+        # Add the material to the object data. 
+
         # TODO: Eliminate one of this and new_blender_curve.
         curve = bpy.data.curves.new(name, "CURVE")
         obj = bpy.data.objects.new(name, curve)
@@ -224,13 +220,11 @@ class SVGGeometry:
         #Test by translating the curves a bit in the z-direction for every layer. 
         # m = Matrix.Translation((0, 0, 0.000015))
         # self._push_transform(m)
-
         return obj.data
 
     def _new_blender_curve(self, name, is_cyclic):
         """Create new curve object and link it to the Blender collection.
-        Then add a spline to the given curve.
-        """
+        Then add a spline to the given curve."""
         # TODO: Keep only one of this and _new_blender_curve_object.
         curve = bpy.data.curves.new(name, "CURVE")
         obj = bpy.data.objects.new(name, curve)
