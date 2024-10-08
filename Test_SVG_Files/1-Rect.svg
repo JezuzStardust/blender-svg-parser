@@ -1,0 +1,5 @@
+<svg width="500" height="300" xmlns="http://www.w3.org/2000/svg">
+	<rect width="200" height="100" x="10" y="10" rx="20" ry="20" fill="blue" />
+	<rect width="300" height="100" x="10" y="160" style="fill:rgb(255,255,0);stroke-width:3;stroke:red" />
+	<rect width="50%" height="30%" x="220" y="10" rx="20%" ry="10%" style="fill:rgb(0,255,0)" />
+</svg>
