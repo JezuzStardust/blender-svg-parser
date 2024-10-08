@@ -15,9 +15,8 @@
 #  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 #
 # ##### END GPL LICENSE BLOCK #####
-# <pep8 compliant>
 #
-# Based on the official Blender addon 
+# Based on the official Blender addon.
 # "Scalable Vector Graphics (SVG) 1.1 format" by J. M. Soler, Sergey Sharybin
 # Additions and modifications:
 # Copyright (C) 2020, 2021, 2022 Jens Zamanian, https://github.com/JezuzStardust
@@ -50,7 +49,7 @@
 # 1. Parse the geometries as before. 
 # 2. At the stage where Blender objects are created, we should instead store all 
 #    transformed points in the different classes. 
-# 2a. Alternatively: Instead we can store curves.Bezier, curves.Spline, etc in the classes.
+# 2a. Alternatively: Instead we can store curves. Bezier, curves.Spline, etc in the classes.
 # 2b. Probably: Create a separate data class that stores the hierarchy of curves.
 # 3. This should create a new hierarchy where, e.g., all USE nodes are replaced 
 #    in place with the corresponding geometry. 
@@ -966,6 +965,7 @@ class SVGGeometryELLIPSE(SVGGeometry):
         self._add_points_to_blender(coords, spline)
         self._pop_transform(self._transform)
 
+
 class SVGGeometryCIRCLE(SVGGeometryELLIPSE):
     """
     A <circle> element with a lot of reuse of ellipse code.
@@ -1773,7 +1773,7 @@ class SVGLoader(SVGGeometryContainer):
 
         Parameters
         ----------
-        blender_context
+        blender_context: bpy.context
                           The Blender context (bpy.context). Gives access to all the objects, settings, materials, etc in the file. 
 
         svg_filepath : str
@@ -1822,7 +1822,7 @@ class SVGLoader(SVGGeometryContainer):
         # styles etc. Do not confuse with bpy.context in Blender.
         # Shared by all classes.
         context = {
-            "current_viewBox": (0, 0, 100, 100),  # Same as view Box_stack[-1].
+            "current_viewBox": default_viewBox,  # Same as view Box_stack[-1].
             "viewBox_stack": [(0, 0, 0, 0)],
             "current_transform": m, # Stack of transforms from the current node to Blender coordinate space. 
             "style_stack": [], # Stores the styles of all parents at the time of curve creations.
