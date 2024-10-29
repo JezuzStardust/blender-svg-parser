@@ -1,7 +1,9 @@
 <?xml version="1.0" standalone="no"?>
 <svg width="100px" height="100px" version="1.1" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<defs> 
-<circle id="ele" cx="50" cy="50" r="40" fill="green"/> 
-</defs> 
-<use xlink:href="#ele" fill="blue" /> 
+	<defs> 
+		<circle id="ele" cx="50" cy="50" r="40" fill="blue"/> 
+		<rect id="ele2" width="50" height="50" x="10" y="10" rx="20" ry="20" />
+	</defs> 
+	<use xlink:href="#ele" fill="green" /> 
+	<use xlink:href="#ele2" x="20" fill="green" /> 
 </svg>
