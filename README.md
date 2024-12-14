@@ -7,9 +7,16 @@ The original source code can be found e.g. [here](https://github.com/sobotka/ble
 **Work in progress.** 
 
 ## How to test it
-1. Make a folder e.g. `~/Blender-Scipts/modules/svgparser` and clone the project there.
-2. In Blender Preferences choose `File Paths` and set the `Scripts` to the path above.
-3. Open a Scripting tab and enter e.g.
+
+1. Blender requires a [specific folder structure](https://docs.blender.org/manual/en/latest/editors/preferences/file_paths.html) to import the script and modules. Create a folder with the following structure:
+	* `scripts`
+		- `addons`
+		- `modules`
+			+ `svgparser`
+		- `startup`
+2. Clone the project to the `svgparser` folder.
+3. In Blender Preferences choose `File Paths` and set the `Scripts` to the `scripts` folder above. You may need to restart Blender after making these changes.
+4. Open a Scripting tab and enter e.g.
 ```python
 import bpy
 import svgparser.svgparser 
@@ -17,15 +24,14 @@ ld = svgparser.svgparser.SVGLoader(bpy.context, <path-to-svg-file>)
 ld.parse()
 ld.create_blender_splines()
 ```
-where `<path-to-svg-file>` is the absolut path to an SVG file on your computer. 
-If you want to edit the source, you need to make sure that Blender always uses 
-the latest version. In that case, add
+where `<path-to-svg-file>` is the absolute path to an SVG file on your computer. 
+If you want to edit the source, you need to make sure that Blender always uses the latest version. In that case, add:
 ```python
 import importlib
 importlib.reload(svgparser.svgparser)
 ```
 
-## Current work: 
+## Current work:
 Currently I am working on a module for Bézier curves. This will handle all the calculations for e.g. strokes.
 To test this, you can add a poly-Bézier curve (add a Bézier curve and extrude one of the ends a few times) and then do the following:
 ```python
@@ -83,7 +89,7 @@ Original SVG-file: [tiger.svg](https://commons.wikimedia.org/wiki/File:Ghostscri
 * Sets the color both as a default color and also in the node tree. In the standard plugin you loose the color if you switch to using nodes. 
 * Handles both the style attribute and a standalone fill attribute. 
 
-## References 
+## References
 Below is a list of references and what I have used them for. 
 1. [Drawing an elliptical arc using polylines, quadratic or cubic Bézier curves by L. Maisonobe](http://www.spaceroots.org/documents/ellipse/elliptical-arc.pdf) - Approximation of an elliptical arc using cubic Bézier curves. 
 2. [The SVG 1.1 recommendation](https://www.w3.org/TR/SVG11/Overview.html)
