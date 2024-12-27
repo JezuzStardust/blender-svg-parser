@@ -16,10 +16,10 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 #
-# Based on the official Blender addon.
+# Based on the official Blender addon: 
 # "Scalable Vector Graphics (SVG) 1.1 format" by J. M. Soler, Sergey Sharybin
 # Additions and modifications:
-# Copyright (C) 2020, 2021, 2022 Jens Zamanian, https://github.com/JezuzStardust
+# Copyright (C) 2020-2024 Jens Zamanian, https://github.com/JezuzStardust
 
 # TODO (longterm):
 # - Add more features of SVG.
