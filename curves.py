@@ -847,6 +847,10 @@ class Bezier(CurveObject):
         print("HEJ", intersections)
         return intersections
 
+    def intersection(self, bezier: 'Bezier'):
+        """Find intersections between self and bezier. 
+        Returns the parameters t1 and t2 for self and bezier."""
+        pass
 
 class Spline(CurveObject): 
     """A list of Bezier curves corresponds to a single spline object.
