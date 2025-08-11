@@ -41,8 +41,7 @@ import mathutils
 import math
 import bpy
 import itertools
-import numpy as np
-from typing import Optional
+from typing import Optional, Iterator, Iterable, overload
 
 from . import solvers
 from .gauss_legendre import GAUSS_LEGENDRE_COEFFS_32
@@ -91,6 +90,71 @@ def tuple_is_close(a: tuple[float, float], b: tuple[float, float], threshold = T
     return comparisons
 
 ##### END: UTILITY FUNCTIONS #####
+
+class Point():
+    __slots__ = ("x", "y", "z")
+
+    _index_to_attr = ("x", "y", "z")
+
+    def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> None:
+        self.x = float(x)
+        self.y = float(y)
+        self.z = float(z)
+
+    @classmethod
+    def from_mu_vector(cls, v: mathutils.Vector):
+        return cls(v[0], v[1], v[2])
+
+    def __repr__(self) -> str:
+        # return f"Point(x = {self.x:.6g}, y = {self.y:.6g}, z = {self.z:.6g})" 
+        return f"Point(x = {self.x}, y = {self.y}, z = {self.z})"
+
+    def __len__(self) -> int: return 3
+
+    def __iter__(self) -> Iterator[float]:
+        for name in self._index_to_attr:
+            yield getattr(self, name)
+
+    # For type-checking, two versions of __getitem__ are noted.
+    @overload
+    def __getitem__(self, idx: int) -> float: ...
+    @overload
+    def __getitem__(self, idx: slice) -> tuple[float, ...]: ...
+
+    def __getitem__(self, idx):
+        if isinstance(idx, slice):
+            rng = range(*idx.indices(3))
+            return tuple(getattr(self, self._index_to_attr[i]) for i in rng)
+        if not isinstance(idx, int):
+            raise TypeError("Indices must be int or slice.")
+        if not -3 <= idx < 3:
+            raise IndexError("Point index out of range (0..2)")
+        return getattr(self, self._index_to_attr[idx])
+
+    def to_mu_vector(self) -> mathutils.Vector:
+        return mathutils.Vector((self.x, self.y, self.z))
+
+    @overload
+    def __setitem__(self, idx: int, value: float) -> None: ...
+    @overload
+    def __setitem__(self, idx: slice, value: Iterable[float]) -> None: ...
+
+    def __setitem(self, idx, value) -> None:
+        if isinstance(idx, slice):
+            vals = list(map(float, value))
+            rng = list(range(*idx.indices(3)))
+            if len(vals) != len(rng):
+                raise ValueError("Slice assignment missmatch.")
+            for i, v in zip(rng, vals):
+                setattr(self, self._index_to_attr[i], v)
+            return
+        if not isinstance(idx, int):
+            raise TypeError("Indices must be int or slice.")
+        if not -3 <= idx < 3:
+            raise IndexError("Point index out of range.")
+        setattr(self, self._index_to_attr[idx], float(value))
+
+
 
 class CurveObject():
     """Base class for all curves."""
@@ -832,93 +896,64 @@ class Bezier(CurveObject):
             den = (c.t1 - c.t0) or 1.0
             dx, dy, _ = c.eval_derivative(to_local(c, tg))
 
-    def intersection_fatline(self, other, *,
-                             coord_tol=4e-5, t_tol=4e-6,
-                             max_iters=64, max_refine=5,
-                             reject_diagonal=False,
-                             debug=False):
-        """
-        Robust fat-line / Bézier clipping intersection between `self` and `other`.
-        Returns a sorted list of (t_self_global, t_other_global) pairs.
-        Works in the XY-plane (Z ignored).
-        """
-        results = []
-        stall_limit = 6  # how many consecutive non-shrinking clips before fallback
 
-        # ---------------- helpers ----------------
-        def xy(v):
-            return float(v.x), float(v.y)
+        return math.hypot(float(pv.x - cv.x), float(pv.y - cv.y))
 
-        def to_local(c, tg):  # global -> local t in [0,1]
+
+
+        def xy(v): return float(v.x), float(v.y)
+        def to_local(c, tg):
             den = (c.t1 - c.t0)
             return 0.0 if den == 0.0 else (tg - c.t0) / den
-
-        def eval_global(c, tg):  # evaluate on INSTANCE c using GLOBAL t
+        def eval_global(c, tg):
             return xy(c(to_local(c, tg)))
-
-        def deriv_global(c, tg):  # derivative w.r.t. GLOBAL t (chain rule)
+        def deriv_global(c, tg):
             den = (c.t1 - c.t0) or 1.0
-            dx, dy, _ = c.eval_derivative(to_local(c, tg))
-            return float(dx)/den, float(dy)/den
-
+            dv = c.eval_derivative(to_local(c, tg))
+            return float(dv.x)/den, float(dv.y)/den
         def subcurve_points_global(c, a_g, b_g):
-            """Return control points (Vectors) of c restricted to GLOBAL [a_g, b_g]."""
-            a_g = max(c.t0, min(c.t1, a_g))
-            b_g = max(c.t0, min(c.t1, b_g))
-            if b_g <= a_g + 1e-16:
-                return c.points
-            if a_g <= c.t0 + 1e-16 and b_g >= c.t1 - 1e-16:
-                return c.points
-            u0 = to_local(c, a_g)
-            u1 = to_local(c, b_g)
-            u0 = max(0.0, min(1.0, u0)); u1 = max(0.0, min(1.0, u1))
+            a_g = max(c.t0, min(c.t1, a_g)); b_g = max(c.t0, min(c.t1, b_g))
+            if b_g <= a_g + 1e-16: return c.points
+            if a_g <= c.t0 + 1e-16 and b_g >= c.t1 - 1e-16: return c.points
+            u0 = to_local(c, a_g); u1 = to_local(c, b_g)
             L, R = c.split2(u0)
             s = (u1 - u0) / max(1e-16, (1.0 - u0))
             Sub, _ = R.split2(s)
             return Sub.points
-
-        def segment_bbox(c, a_g, b_g):  # control-point bbox of subcurve (inflated)
+        def segment_bbox(c, a_g, b_g):
             P = subcurve_points_global(c, a_g, b_g)
             xs = [p.x for p in P]; ys = [p.y for p in P]
             return (min(xs)-coord_tol, min(ys)-coord_tol, max(xs)+coord_tol, max(ys)+coord_tol)
-
         def bbox_overlap(b1, b2):
             return not (b1[2] < b2[0] or b2[2] < b1[0] or b1[3] < b2[1] or b2[3] < b1[1])
-
         def fatline_band(A, a_g, b_g):
-            """Return baseline point, unit normal, and [dmin,dmax] strip for A|[a_g,b_g]."""
             P = list(map(xy, subcurve_points_global(A, a_g, b_g)))
-            P0, P1, P2, P3 = P
-            ax, ay = P0; bx, by = P3
-            vx, vy = (bx - ax, by - ay)
-            nrm = (vx*vx + vy*vy) ** 0.5
-            nx, ny = ((0.0, 1.0) if nrm == 0.0 else (-vy/nrm, vx/nrm))
-            def sd(pt):
-                px, py = pt
-                return (px - ax)*nx + (py - ay)*ny
-            d0, d1, d2, d3 = sd(P0), sd(P1), sd(P2), sd(P3)
-            pad = 4.0 * coord_tol  # more generous padding for float32 safety
-            dmin = min(d0, d1, d2, d3) - pad
-            dmax = max(d0, d1, d2, d3) + pad
+            (ax,ay),(x1,y1),(x2,y2),(bx,by) = P
+            vx, vy = (bx-ax, by-ay); nrm = (vx*vx+vy*vy)**0.5
+            nx, ny = ((0.0,1.0) if nrm==0.0 else (-vy/nrm, vx/nrm))
+            def sd(pt): px,py = pt; return (px-ax)*nx + (py-ay)*ny
+            d0,d1,d2,d3 = sd(P[0]), sd(P[1]), sd(P[2]), sd(P[3])
+            pad = 4.0 * coord_tol
+            dmin = min(d0,d1,d2,d3) - pad; dmax = max(d0,d1,d2,d3) + pad
+            if debug:
+                print("[fatline] A-sub[", a_g, b_g, "] base=(", (ax,ay), (bx,by), ")",
+                      "dmin,max=", (dmin,dmax))
             return ax, ay, nx, ny, dmin, dmax
-
         def distances_to_band(B, b0_g, b1_g, ax, ay, nx, ny):
             Q = list(map(xy, subcurve_points_global(B, b0_g, b1_g)))
-            return [ (qx - ax)*nx + (qy - ay)*ny for (qx, qy) in Q ], Q
-
+            ds = [ (qx-ax)*nx + (qy-ay)*ny for (qx,qy) in Q ]
+            return ds, Q
         def clip_against_band(A, a0_g, a1_g, B, b0_g, b1_g):
             ax, ay, nx, ny, dmin, dmax = fatline_band(A, a0_g, a1_g)
             ds, Q = distances_to_band(B, b0_g, b1_g, ax, ay, nx, ny)
-            # reject if control polygon is entirely outside the band
+            if debug:
+                print("  [clip] ds(min,max)=", (min(ds), max(ds)), " vs band ", (dmin, dmax))
             if max(ds) < dmin or min(ds) > dmax:
                 return None
-            # map crossings of band edges to a pseudo-parameter (control-polygon chord length)
-            chords = [0.0]
-            total = 0.0
+            chords = [0.0]; total = 0.0
             for k in range(3):
-                dx = Q[k+1][0] - Q[k][0]; dy = Q[k+1][1] - Q[k][1]
-                total += (dx*dx + dy*dy) ** 0.5
-                chords.append(total)
+                dx = Q[k+1][0]-Q[k][0]; dy = Q[k+1][1]-Q[k][1]
+                total += (dx*dx+dy*dy)**0.5; chords.append(total)
             total = total or 1.0
             chords = [c/total for c in chords]
             crosses = []
@@ -931,144 +966,122 @@ class Bezier(CurveObject):
                         t_edge = (1.0 - u)*chords[k] + u*chords[k+1]
                         crosses.append(t_edge)
             if not crosses:
-                return (b0_g, b1_g)  # entirely inside band → keep as is
+                return (b0_g, b1_g)
             u0 = max(0.0, min(1.0, min(crosses)))
             u1 = max(0.0, min(1.0, max(crosses)))
             if u1 <= u0 + 1e-12:
                 return None
             return b0_g + (b1_g - b0_g)*u0, b0_g + (b1_g - b0_g)*u1
-
-        def rect_area(a0,a1,b0,b1):
-            return max(0.0, a1-a0) * max(0.0, b1-b0)
-
+        def rect_area(a0,a1,b0,b1): return max(0.0,a1-a0) * max(0.0,b1-b0)
         def newton_polish_pair(c1, c2, t1g, t2g):
             for _ in range(max_refine):
-                x1,y1 = eval_global(c1, t1g)
-                x2,y2 = eval_global(c2, t2g)
-                fx, fy = (x1 - x2), (y1 - y2)
-                if fx*fx + fy*fy <= coord_tol*coord_tol:
-                    break
-                a0, a1 = deriv_global(c1, t1g)
-                b0, b1 = deriv_global(c2, t2g)
+                x1,y1 = eval_global(c1, t1g); x2,y2 = eval_global(c2, t2g)
+                fx,fy = (x1-x2), (y1-y2)
+                if fx*fx + fy*fy <= coord_tol*coord_tol: break
+                a0,a1 = deriv_global(c1, t1g); b0,b1 = deriv_global(c2, t2g)
                 det = a0*(-b1) - a1*(-b0)
-                if abs(det) < 1e-14:
-                    break
+                if abs(det) < 1e-14: break
                 dt1 = ( (-fx)*(-b1) - (-fy)*(-b0) ) / det
                 dt2 = (    a0*(-fy) -     a1*(-fx) ) / det
                 t1g += dt1; t2g += dt2
-                if abs(dt1) + abs(dt2) < t_tol:
-                    break
+                if abs(dt1)+abs(dt2) < t_tol: break
                 t1g = 0.0 if t1g < 0.0 else (1.0 if t1g > 1.0 else t1g)
                 t2g = 0.0 if t2g < 0.0 else (1.0 if t2g > 1.0 else t2g)
             return t1g, t2g
-
         def add_hit(t1g, t2g):
-            a, b = (t1g, t2g) if t1g <= t2g else (t2g, t1g)
-            for x, y in results:
-                if abs(a - x) < t_tol and abs(b - y) < t_tol:
-                    return
-            results.append((a, b))
-
-        # local polyline fallback if clipping stalls
+            a,b = (t1g,t2g) if t1g <= t2g else (t2g,t1g)
+            for x,y in results:
+                if abs(a-x) < t_tol and abs(b-y) < t_tol: return
+            results.append((a,b))
         def fallback_seed_and_polish(a0,a1,b0,b1):
-            best = None; bestd2 = float('inf')
+            best=None; bestd2=float('inf')
             for i in range(9):
-                ta = a0 + (a1-a0) * (i/8.0)
-                xa, ya = eval_global(self, ta)
+                ta = a0 + (a1-a0)*(i/8.0); xa,ya = eval_global(self, ta)
                 for j in range(9):
-                    tb = b0 + (b1-b0) * (j/8.0)
-                    xb, yb = eval_global(other, tb)
+                    tb = b0 + (b1-b0)*(j/8.0); xb,yb = eval_global(other, tb)
                     d2 = (xa-xb)*(xa-xb) + (ya-yb)*(ya-yb)
-                    if d2 < bestd2:
-                        bestd2 = d2; best = (ta, tb)
-            if best is None:
-                return None
-            tA, tB = newton_polish_pair(self, other, best[0], best[1])
-            if reject_diagonal and abs(tA - tB) < 8.0*t_tol:
-                return None
-            return (tA, tB)
+                    if d2 < bestd2: bestd2=d2; best=(ta,tb)
+            if best is None: return None
+            tA,tB = newton_polish_pair(self, other, best[0], best[1])
+            if reject_diagonal and abs(tA - tB) < 8.0*t_tol: return None
+            return (tA,tB)
 
-        # ---------------- main loop (GLOBAL t) ----------------
-        stack = [(self.t0, self.t1, other.t0, other.t1, 0, 0)]  # (a0,a1,b0,b1,iters,stalls)
+        if debug:
+            print("ROOT GLOBAL RANGES:", (self.t0,self.t1), "|", (other.t0,other.t1))
+            _debug_print_subcurve_band(self, self.t0, self.t1)
+            _debug_print_subcurve_band(other, other.t0, other.t1)
 
+        stack = [(self.t0, self.t1, other.t0, other.t1, 0, 0)]
         while stack:
-            a0, a1, b0, b1, iters, stalls = stack.pop()
-            if iters > max_iters:
-                continue
-
-            # bbox prune
+            a0,a1,b0,b1,iters,stalls = stack.pop()
+            if iters > max_iters: continue
             if not bbox_overlap(segment_bbox(self, a0, a1), segment_bbox(other, b0, b1)):
                 if debug: print("bbox reject", (a0,a1,b0,b1))
                 continue
-
             area_before = rect_area(a0,a1,b0,b1)
-
             clippedB = clip_against_band(self, a0, a1, other, b0, b1)
             if clippedB is None:
                 if debug: print("reject by band A->B", (a0,a1,b0,b1))
                 continue
-            b0c, b1c = clippedB
-
+            b0c,b1c = clippedB
+            if debug: print("A->B clip:", (a0,a1,b0,b1), "→", (b0c,b1c))
             clippedA = clip_against_band(other, b0c, b1c, self, a0, a1)
             if clippedA is None:
                 if debug: print("reject by band B->A", (a0,a1,b0,b1))
                 continue
-            a0c, a1c = clippedA
-
+            a0c,a1c = clippedA
+            if debug: print("B->A clip:", (b0c,b1c), "→", (a0c,a1c))
             area_after = rect_area(a0c,a1c,b0c,b1c)
             shrunk = area_after < area_before - 1e-16
-
-            # termination
-            if (a1c - a0c) <= t_tol and (b1c - b0c) <= t_tol:
-                tA = 0.5*(a0c + a1c)
-                tB = 0.5*(b0c + b1c)
-                tA, tB = newton_polish_pair(self, other, tA, tB)
+            if (a1c-a0c) <= t_tol and (b1c-b0c) <= t_tol:
+                tA = 0.5*(a0c+a1c); tB = 0.5*(b0c+b1c)
+                tA,tB = newton_polish_pair(self, other, tA, tB)
                 if reject_diagonal and abs(tA - tB) < 8.0*t_tol:
                     if debug: print("reject diag", tA, tB)
                     continue
-                add_hit(tA, tB)
+                add_hit(tA,tB)
                 if debug: print("HIT", tA, tB)
                 continue
-
             if not shrunk:
                 stalls += 1
                 if stalls >= stall_limit:
-                    seed = fallback_seed_and_polish(a0c, a1c, b0c, b1c)
+                    seed = fallback_seed_and_polish(a0c,a1c,b0c,b1c)
                     if seed:
                         add_hit(*seed)
                         if debug: print("FALLBACK HIT", seed)
                     else:
                         if debug: print("FALLBACK NONE", (a0c,a1c,b0c,b1c))
                     continue
-                # subdivide the larger dimension
-                if (a1c - a0c) >= (b1c - b0c):
-                    amid = 0.5*(a0c + a1c)
-                    stack.append((amid, a1c, b0c, b1c, iters+1, stalls))
-                    stack.append((a0c, amid, b0c, b1c, iters+1, stalls))
+                if (a1c-a0c) >= (b1c-b0c):
+                    amid = 0.5*(a0c+a1c)
+                    stack.append((amid,a1c,b0c,b1c,iters+1,stalls))
+                    stack.append((a0c,amid,b0c,b1c,iters+1,stalls))
                 else:
-                    bmid = 0.5*(b0c + b1c)
-                    stack.append((a0c, a1c, bmid, b1c, iters+1, stalls))
-                    stack.append((a0c, a1c, b0c, bmid, iters+1, stalls))
+                    bmid = 0.5*(b0c+b1c)
+                    stack.append((a0c,a1c,bmid,b1c,iters+1,stalls))
+                    stack.append((a0c,a1c,b0c,bmid,iters+1,stalls))
                 continue
-
-            # normal case: shrunk — reset stalls and keep subdividing
             stalls = 0
-            if (a1c - a0c) >= (b1c - b0c):
-                amid = 0.5*(a0c + a1c)
-                stack.append((amid, a1c, b0c, b1c, iters+1, stalls))
-                stack.append((a0c, amid, b0c, b1c, iters+1, stalls))
+            if (a1c-a0c) >= (b1c-b0c):
+                amid = 0.5*(a0c+a1c)
+                stack.append((amid,a1c,b0c,b1c,iters+1,stalls))
+                stack.append((a0c,amid,b0c,b1c,iters+1,stalls))
             else:
-                bmid = 0.5*(b0c + b1c)
-                stack.append((a0c, a1c, bmid, b1c, iters+1, stalls))
-                stack.append((a0c, a1c, b0c, bmid, iters+1, stalls))
-
+                bmid = 0.5*(b0c+b1c)
+                stack.append((a0c,a1c,bmid,b1c,iters+1,stalls))
+                stack.append((a0c,a1c,b0c,bmid,iters+1,stalls))
         results.sort()
         return results
 
-    def self_intersections_fatline(self, **kwargs):
-        """Self intersections via fat-line; splits at 0.5 and adds diagonal guard."""
+
         L, R = self.split2(0.5)
         return L.intersection_fatline(R, reject_diagonal=True, **kwargs)
+
+        L, R = self.split2(0.5)
+        return L.intersection_fatline(R, reject_diagonal=True, **kwargs)
+
+    def fatline(self):
+        pass
 
 class Spline(CurveObject): 
     """A list of Bezier curves corresponds to a single spline object.

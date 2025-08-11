@@ -1,1 +1,0 @@
-from .svgparser import SVGLoader
