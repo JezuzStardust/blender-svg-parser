@@ -59,13 +59,14 @@ def solve_quadratic(c2: Union[float, complex], c1: Union[float, complex], c0: Un
 
     return [x0, x1]
 
-def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float): 
+def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float, eps = 1e-12): 
     """Solves the cubic equation c3i * x**3 + c2i * x**2 + c1i * x + c0i = 0.
     See: https://momentsingraphics.de/CubicRoots.html.
     Returns only the real solutions."""
 
-    if c3i == 0.0:
-        return solve_cubic(c0i, c1i, c2i)
+    if abs(c3i) < eps:
+        # Equation is really quadratic.
+        return solve_quadratic(c0i, c1i, c2i)
 
     c2 = c2i / (3 * c3i) 
     c1 = c1i / (3 * c3i)
@@ -80,14 +81,14 @@ def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float):
     # de is called Depressed.x. Depressed.y = d0
     de = -2 * c2 * d0 + d1
     
-    if d < 0.0:
+    if d < -eps:
         sq = math.sqrt(-0.25 * d)
         r = - 0.5 * de
         # x**(1/3) can return complex number if x < 0. 
         # We take abs(x)**1/3 and then put back the sign to avoid this.
         t1: float = math.copysign(abs(r + sq)**(1/3), r + sq) + math.copysign(abs(r - sq)**(1/3), r - sq)
         return [t1 - c2]
-    elif d == 0.0: 
+    elif abs(d) < eps: 
         t1 = math.copysign(math.sqrt(-d0), de)
         return [t1 - c2, - 2 * t1 - c2]
     else:
