@@ -1,11 +1,12 @@
 # Copyright 2023-2025 Jens Zamanian
 
 # DISCLAIMER: 
-# A big part of this file is based on the ideas found in the blogpost: 
+# A big part of the methods related to curve offsetting is
+# based on the ideas found in the blogpost:
 # https://raphlinus.github.io/curves/2022/09/09/parallel-beziers.html
 # and parts of the code is adapted from the in the interactive
 # demo on that page (source can be found at: raphlinus/raphlinus.github.io). 
-# However, all the code have() been rewritten in Python and almost
+# However, all the code have been rewritten in Python and almost
 # all of it is modified so any bugs/errors are my fault (JZ).
 # Hopefully it is correct to consider this a derived work and
 # hence retain the Apache 2.0 licence for this file.
@@ -33,7 +34,6 @@
 
 ##### CONSTANTS #####
 INTERSECTION_THRESHOLD = 1e-6 # Threshold for when to stop subdividing when finding intersections.
-TUPLE_FILTER_THRESHOLD = .2e-1 # Threshold for when two intersections are assumed to be the same. 
 OFFSET_TOLERANCE = 1e-4
 ##### END: CONSTANTS #####
 
@@ -41,7 +41,7 @@ import mathutils
 import math
 import bpy
 import itertools
-from typing import Iterator, Iterable, overload
+from typing import Iterator, Iterable, overload, Union
 from collections.abc import Sequence
 
 from . import solvers
@@ -81,25 +81,7 @@ def add_square(p: "Vector", r: float = 0.1):
     ob = bpy.data.objects.new(me.name, me)
     bpy.data.collections['Collection'].objects.link(ob)
 
-def filter_duplicates(tuples, threshold = TUPLE_FILTER_THRESHOLD):
-    """Filter out tuples that differ less than threshold."""
-    result = []
-    for tup in tuples:
-        if not any(tuple_is_close(tup, other, threshold) for other in result):
-            result.append(tup)
 
-    # excluded = [(0, 0), (1, 0), (0, 1), (1, 1)]
-    # final = []
-    # for tup in result: 
-        # if not any(tuple_is_close(tup, other, threshold) for other in excluded):
-            # final.append(tup)
-    return result
-
-def tuple_is_close(a: tuple[float, float], b: tuple[float, float], threshold = TUPLE_FILTER_THRESHOLD):
-    """Checks if two tuples a, and b, differ less then threshold. 
-    (a, b) is close to (a', b') if (a - a') < threshold and abs(b - b') < threshold."""
-    comparisons = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
-    return comparisons
 
 ##### END: UTILITY FUNCTIONS #####
 
@@ -117,7 +99,6 @@ class Vector(Sequence[float]): # Inheritance only for type checking.
     @classmethod
     def from_mu_vector(cls, v: mathutils.Vector):
         return cls(v[0], v[1], v[2])
-
 
     def __repr__(self) -> str:
         # return f"Vector(x = {self.x:.6g}, y = {self.y:.6g}, z = {self.z:.6g})" 
@@ -335,7 +316,7 @@ class Matrix():
         g, h, i = self.m20, self.m21, self.m22
         return a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g)
 
-    def inverse(self) -> "Mat3":
+    def inverse(self) -> "Matrix":
         # Adjugate / determinant formula; fine for 3-by-3
         a, b, c = self.m00, self.m01, self.m02
         d, e, f = self.m10, self.m11, self.m12
@@ -351,8 +332,14 @@ class Matrix():
                                 (D*inv_det, E*inv_det, F*inv_det),
                                 (G*inv_det, H*inv_det, I*inv_det))
 
-    def __matmul__(self, other):
-        # Mat3 @ Mat3
+    @overload 
+    def __matmul__(self, other: "Matrix") -> "Matrix": ...
+    
+    @overload 
+    def __matmul__(self, other: "Vector") -> Vector: ...
+
+    def __matmul__(self, other: "Union[Matrix, Vector]") -> "Union[Matrix, Vector]":
+        # Matrix @ Matrix
         if isinstance(other, Matrix):
             a = self
             b = other
@@ -373,16 +360,13 @@ class Matrix():
                     a.m20*b.m02 + a.m21*b.m12 + a.m22*b.m22,
                 ),
             )
-        # Mat3 @ vector-like -> return same type when possible
-        if hasattr(other, "x") and hasattr(other, "y") and hasattr(other, "z"):
+        # Matrix @ vector-like -> return same type when possible
+        if isinstance(other, Vector):
             x = self.m00*other.x + self.m01*other.y + self.m02*other.z
             y = self.m10*other.x + self.m11*other.y + self.m12*other.z
             z = self.m20*other.x + self.m21*other.y + self.m22*other.z
-            try:
-                return other.__class__(x, y, z)
-            except Exception:
-                return (x, y, z)
-        return NotImplemented
+            return Vector(x, y, z)
+        return None
 
     def __mul__(self, s: float) -> "Matrix":
         if not isinstance(s, (int, float)):
@@ -569,17 +553,10 @@ class Bezier(CurveObject):
         # string += "end_handle_right: " + str(self.end_handle_right) + '>'
         # return string
 
-    def __call__(self, t: float, world_space: bool = False, global_t: bool = False) -> Vector:
+    def __call__(self, t: float, world_space: bool = False) -> Vector | mathutils.Vector:
         """Returns the value at parameter t. 
         If world_space = False, the position is calculated relative to the origin of the Bezier.
-        If global_t = True, the position is evaluated at the parameter t of the original curve (if the curve is split). 
         """
-        if global_t:
-            denom = self.t1 - self.t0
-            if denom == 0.0:
-                t = 0.0
-            else:
-                t = (t - self.t0) / denom
         p = self.points
         pos = p[0] * (1 - t)**3 + 3 * p[1] * (1 - t)**2 * t + 3 * p[2] * (1 - t) * t**2 + p[3] * t**3
         if world_space:
@@ -611,17 +588,10 @@ class Bezier(CurveObject):
         self.end_handle_right = self.end_handle_right + dist
         self.location = vector
 
-    def eval_derivative(self, t: float, global_t: bool = False) -> Vector:
+    def eval_derivative(self, t: float) -> Vector:
         """Evaluate derivative at parameter t. If global_t and self was
         split from a larger curve, then the derivative is evaluated at the 
         parameter that corresponds to t of the original curve."""
-        if global_t:
-            denom = self.t1 - self.t0
-            # TODO: Store this in variable or make function for float comparisions.
-            if denom < 1e-12: 
-                t = 0.0
-            else:
-                t = (t - self.t0) / denom
         p = self.points
         return 3 * (p[1] - p[0]) * (1-t)**2 + 6 * (p[2] - p[1]) * (1-t) * t + 3 * (p[3] - p[2]) * t**2
 
@@ -769,8 +739,6 @@ class Bezier(CurveObject):
         """Split out the subsegment between t0 and t1.
         If the curves have been previously split, we can insert the parameter
         of the original whole curve where we want to split the curve."""
-
-
         p0 = self(t0)
         p3 = self(t1)
         factor = (t1 - t0) / 3
@@ -800,7 +768,7 @@ class Bezier(CurveObject):
                       scale = sca,
                       rotation = rot)
 
-    def split2(self, t: float):
+    def split(self, t: float):
         # De Casteljau subdivision
         p0, p1, p2, p3 = self.points
         # p0: Vector = self.points[0]
@@ -831,7 +799,7 @@ class Bezier(CurveObject):
 
         return left, right
 
-    def split2_o(self, *parameters: float):
+    def split_o(self, *parameters: float):
         """Split the curve at parameters. Returns a list of the split segments."""
         # TODO: Rename this to split as soon as the other one is removed.
         # TODO: Should this return a Curve instead?
@@ -897,6 +865,7 @@ class Bezier(CurveObject):
 
     def overlaps(self, bezier):
         """Check if the bounding box of self and Bezier overlaps."""
+        # WARNING: SHOULD BE REMOVED WHEN WE HAVE UPDATED EVERY
         # TODO: Only used in self_intersections.
         # Remove this when new algorithm is in place!
         # 0      1      2      3
@@ -1009,79 +978,258 @@ class Bezier(CurveObject):
         left_offset.add_to_Blender()
         right_offset.add_to_Blender()
 
-    def curve_intersections(self, c2: 'Bezier', threshold = INTERSECTION_THRESHOLD):
-        """Recursive method used for finding the intersection between the two Bezier curves self and c2.
-        """
-        # TODO: Check for endpoint matching.
-        # NOTE: Will be superseeded.
-        threshold2 = threshold * threshold
-        bez0 = self
-        results: list[tuple[float, float]] = [] 
-        # if bez0.t1 - bez0.t0 < threshold and c2.t1 - c2.t0 < threshold:
-        if bez0.bounding_box()['area'] < threshold2 and c2.bounding_box()['area'] < threshold2:
-            # return [((bez0.t0 + bez0.t1)/2 , (c2.t0 + c2.t1)/2)]
-            if (bez0.t0 < TUPLE_FILTER_THRESHOLD or bez0.t1 > 1.0 - TUPLE_FILTER_THRESHOLD) and (c2.t0 < TUPLE_FILTER_THRESHOLD or c2.t1 > 1.0 - TUPLE_FILTER_THRESHOLD):
-                return []
-            else: 
-                return [(bez0.t0, bez0.t1, c2.t0, c2.t1)]
+    def self_intersection(self, eps0: float = 1e-15):
+        """Returns list[t, s] where self(t) = self(s) and t != s.
+        If no self intersections are found, then None is returned."""
+        # NOTE: Reduction of the equation x(t) = x(s), y(t) = y(s) to a linear equation 
+        # and then a quadratic equation.
+        # Start by dividing x(t) - x(s) with the trivial factor t - s.
+        # Define u = s + t, v = s t (symmetric variables)
+        # Solve the resulting linear system for (u^2 - v) and u.
+        # Find u, v from that. 
+        # The roots t and s are then the solutions to 
+        # r^2 - u r + v = 0 by Viète's formulas.
 
-        cc1 = bez0.split2(0.5)
-        cc2 = c2.split2(0.5)
-        pairs = itertools.product(cc1, cc2)
+        p0, p1, p2, p3 = self.points
+        ax = - p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]
+        bx = 3 * p0[0] - 6 * p1[0] + 3 * p2[0]
+        cx = - 3 * p0[0] + 3 * p1[0]
+        ay = - p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]
+        by = 3 * p0[1] - 6 * p1[1] + 3 * p2[1]
+        cy = - 3 * p0[1] + 3 * p1[1]
 
-        pairs = list(filter(lambda x: x[0].overlaps(x[1]), pairs))
-        if len(pairs) == 0:
-            return results
-        
-        for pair in pairs:
-            results += pair[0].curve_intersections(pair[1], threshold)
-        results = filter_duplicates(results)
-        return results
-
-    def find_self_intersection(self):
-        # TODO: Correct or improve with Newton-Rhapson
-        """Finds the self intersection of the curve (if any).
-        Returns three parameter values.
-        Ref: https://comp.graphics.algorithms.narkive.com/tqLNEZqM/cubic-bezier-self-intersections
-        """
-        p0 = self.points[0]
-        p1 = self.points[1]
-        p2 = self.points[2]
-        p3 = self.points[3]
-
-        H1 = -3 * p0 + 3 * p1
-        H2 = 3 * p0 - 6 * p1 + 3 * p2
-        H3 = - p0 + 3 * p1 - 3 * p2 + p3 
-        if H3 == mathutils.Vector((0,0,0)):
+        denom = ax * by - ay * bx
+        if abs(denom) < eps0:
             return None
-
-        A = H2.x / H3.x
-        B = H1.x / H3.x
-        P = H2.y / H3.y
-        Q = H1.y / H3.y
         
-        if A == P or Q == B:
-            return None
-
-        k = (Q - B) / (A - P)
-
-        r0 = (- k**3 - A * k**2 - B * k ) / 2
-        r1 = (3 * k**2 + 2 * k * A + 2 * B) / 2
-        r2 = - 3 * k / 2;
-        sols = solvers.solve_cubic(1.0, r2, r1, r0)
-        
-        if sols: 
-            solutions: list[float] = []
-            for s in sols:
-                if isinstance(s, float) and (s >= 0.0 and s <= 1.0):
-                    solutions.append(s)
-                solutions.sort()
-            if len(solutions) == 3:
-                # The middle solution is a rouge solution.
-                # The first and last are the two parameter values where it meets itself. 
-                # Only need the first.
-                return [solutions[0], solutions[2]]
+        u = (cx * ay - cy * ax) / denom
+        uu_minus_v = (cy * bx - cx * by) / denom
+        v = u**2 - uu_minus_v
+        a, b = solvers.solve_quadratic(1, -u, v)
+        if isinstance(a, float) and isinstance(b, float) and 0 <= a <= 1 and 0 <= b <= 1:
+            return (a, b)
         return None
+
+    def intersections(self, other: "Bezier"):
+        """Calculates the intersction between self and other.
+        Follows: http://nishitalab.org/user/nis/cdrom/cad/CAGD90Curve.pdf
+        Sederberg, and Nishita, Curve Intersection by Bezier Clipping, 1990
+        """
+        # TODO: Add max_iters as parameter. 
+        # TODO: Add all tolerances as parameters. Which should be the same?
+
+        # NOTE: Tolerances are:
+        # horisontal_hits, eps=1e-12 for determining if the denominator is close to zero.
+        # merge_spans, eps=1e-15, for determining if spans should be joined. Might not be necessary at all. 
+        # clip_against_fatline, eps=1e-12 to be passed to horisontal hits and to soften fatline slightly.
+        # Main function (ints), tau=1e-10 to determine parameter exactness, also sent to add_results to remove duplicates differing by less than this. 
+
+        def fatline(c: "Bezier"):
+            """Calculates a fatline around the curve c.
+            Returns start and end points p0 and p3, and the widths of
+            the fatline dmin and dmax.
+            """
+            # FIX: Should we check for chord = 0?
+
+            p0, p1, p2, p3 = c.points
+            chord = p3 - p0 
+            normal = chord.perpendicular().normalize()
+            # Distance of controls p1 and p2 t to the chord.
+            d1 = (p1 - p0).dot(normal)
+            d2 = (p2 - p0).dot(normal)
+            if d1 * d2 > 0:
+                dmin = 0.75 * min(0, d1, d2)
+                dmax = 0.75 * max(0, d1, d2)
+            else: 
+                dmin = 4/9 * min(0, d1, d2)
+                dmax = 4/9 * max(0, d1, d2)
+
+            k1 = p0 + normal * dmin
+            k2 = p3 + normal * dmin
+            l1 = p0 + normal * dmax
+            l2 = p3 + normal * dmax
+            return p0, normal, dmin, dmax
+
+        def signed_distances(c: "Bezier", q0: Vector, normal: Vector):
+            """Calculates the signed distances of the controls of c 
+            to the lne q0-q3."""
+            p0, p1, p2, p3 = c.points
+            d0 = (p0 - q0).dot(normal)
+            d1 = (p1 - q0).dot(normal)
+            d2 = (p2 - q0).dot(normal)
+            d3 = (p3 - q0).dot(normal)
+            return d0, d1, d2, d3
+
+        def cross(o: Vector, a: Vector, b: Vector):
+            """Cross product of two dimensional vectors a - o and b - o. 
+            Returns only the z-component."""
+            v1 = a - o
+            v2 = b - o
+            return v1.cross(v2)[2]
+
+        def calculate_convex_hull(d0: float, d1: float, d2: float, d3: float):
+            """Calculate the upper and lower hulls of the constructed bezier curve."""
+            # Create the 'non-parametric' curve D(t) = (t, d(t)) where d(t) is the signed
+            # distance to the other curve. The time parameter is evenly spaced.
+            # The controls points are:
+            points = []
+            points.append(Vector(0,   d0, 0))
+            points.append(Vector(1/3, d1, 0))
+            points.append(Vector(2/3, d2, 0))
+            points.append(Vector(1,   d3, 0))
+
+            lower = []
+            for p in points:
+                # Check if the control polygon is convex and keep only the points that 
+                # are. The cross product check if we are turning to the right. 
+                while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+                    lower.pop()
+                lower.append(p)
+
+            upper = []
+            for p in points:
+                # Check if the control polygon is convex and keep only the points that 
+                # are. The cross product check if we are turning to the right. 
+                while len(upper) >= 2 and cross(upper[-2], upper[-1], p) >= 0:
+                    upper.pop()
+                upper.append(p)
+            return lower, upper
+
+        def horizontal_hits(hull: list[Vector], d: float, eps=1e-12):
+            """Find the intersection of the hull points (chain) and the 
+            horizontal line d."""
+            # Pair the points
+            hits = []
+            for (ta, da, _), (tb, db, _) in zip(hull, hull[1:]):
+                denom = db - da
+                if abs(denom) < eps:
+                    continue
+                s = (d - da) / denom
+                if 0 <= s <= 1:
+                    t_hit = ta + (tb - ta) * s
+                    hits.append(t_hit)
+            return hits
+
+        def eval_hull(hull: list[Vector], s: float):
+            """Evaluate the hull (chain) at parameter value s."""
+            for (sa, da, _), (sb, db, _) in zip(hull, hull[1:]):
+                if sa <= s <= sb:
+                    t = (s - sa) / (sb - sa) # sb != sa by construction of chain.
+                    return da + t * (db - da)
+            # if s is exaclty 1.0 or numerical tail? 
+            return hull[-1][1]
+
+        def merge_spans(spans: list[tuple[float, float]], eps: float = 1e-15):
+            """Merges the parameter intervals spans = [(t0, t1), (t2, t3), ...] 
+            so that overlapping spanns are combined."""
+            if not spans:
+                return []
+            spans.sort()
+            out = [list(spans[0])]
+            for a, b in spans[1:]:
+                if a <= out[-1][1] + eps: # overlaps or touches
+                    out[-1][1] = max(out[-1][1], b)
+                else:
+                    out.append([a,b])
+            return [(a,b) for a, b in out] # Convert back to list of tuples.
+
+        def clip_against_fatline(c1: "Bezier", c2: "Bezier", eps=1e-12):
+            """Creates a fatline around c2 and clips c1 against it."""
+            
+            # TODO: What does eps do here?
+
+            q0, normal, dmin, dmax = fatline(c2)
+
+            # Determine the non-parametric curve.
+            d0, d1, d2, d3 = signed_distances(c1, q0, normal)
+
+            # Find upper and lower convex hull around the non-parametric curve.
+            lower, upper = calculate_convex_hull(d0, d1, d2, d3)
+
+            # List all parameter candidates.
+            cand = {0.0, 1.0}
+            cand.update(s for s,_,_ in lower)
+            cand.update(s for s,_,_ in upper)
+
+            cand.update(horizontal_hits(lower, dmin, eps))
+            cand.update(horizontal_hits(lower, dmax, eps))
+            cand.update(horizontal_hits(upper, dmin, eps))
+            cand.update(horizontal_hits(upper, dmax, eps))
+
+            S = sorted(cand)
+            if len(S) < 2:
+                return None
+
+            feasible = []
+            for a, b in zip(S, S[1:]):
+                sm = 0.5 * (a + b)
+                dlo = eval_hull(lower, sm)
+                dup = eval_hull(upper, sm)
+                if (dlo <= dmax + eps) and (dup >= dmin - eps):
+                    feasible.append((a, b))
+
+            spans = merge_spans(feasible, eps=1e-15)
+            if not spans:
+                return None
+
+            sL = max(0.0, spans[0][0] - eps)
+            sR = min(1.0, spans[-1][1] + eps)
+            return (sL, sR)
+
+        def add_result(results, t0a, t1a, t0b, t1b, eps_0=1e-12):
+            """Add result only if it is not already present."""
+            for (a,b, c, d) in results:
+                if abs(a - t0a) < eps_0 and abs(b - t1a) < eps_0 and abs(c - t0b) < eps_0 and abs(d - t1b) < eps_0:
+                    return
+            results.append((t0a, t1a, t0b, t1b))
+
+        def one_clipping(c1: "Bezier", c2: "Bezier"):
+            """Clips c1 agains the fatline of c2."""
+            spans1 = clip_against_fatline(c1, c2)
+            if spans1:
+                t0, t1 = spans1
+                return c1.subsegment(t0, t1)
+            else:
+                return None
+
+        from collections import deque
+        que = deque()
+        que.append((self, other))
+
+        results = []
+        MAX_ITER = 12
+        tau = 1e-12 # FIX: Use the desired t-exactness. Perhaps even better than this?
+        while que:
+            new1, new2 = que.popleft()
+            i = 0
+            while i < MAX_ITER and ((new1.t1 - new1.t0) > tau or (new2.t1 - new2.t0) > tau):
+                old1 = new1
+                old2 = new2
+                i += 1
+                new1 = one_clipping(old1, old2) # TODO: Must handle non-intersections!
+                if not new1:
+                    break
+                new2 = one_clipping(old2, new1)
+                if not new2:
+                    break
+                db1 = new1.t1 - new1.t0
+                db2 = new2.t1 - new2.t0
+                if db1 > 0.7 * (old1.t1 - old1.t0) or db2 > 0.7 * (old2.t1 - old2.t0):
+                    if db1 > db2:
+                        b1a, b1b = new1.split(0.5)
+                        que.append((b1a, new2))
+                        que.append((b1b, new2))
+                    else: # db2 > db1
+                        b2a, b2b = new2.split(0.5)
+                        que.append((new1, b2a))
+                        que.append((new1, b2b))
+                    break
+            if new1 and new2 and (new1.t1 - new1.t0) < tau and (new2.t1 - new2.t0) < tau:
+                add_result(results, new1.t0, new1.t1, new2.t0, new2.t1, tau) 
+
+        results = [(0.5*(a+b), 0.5*(c+d)) for a, b, c, d in results]
+        results.sort()
+        return results
 
     def tolerances_for_curve(self, *, k=32, 
                              coord_min=1e-8, coord_max=1e-3,
@@ -1093,6 +1241,7 @@ class Bezier(CurveObject):
         - coord_min/max: clamps for coordinate tolerance (absolute units).
         - t_min/max: clamps for t-space tolerance.
         """
+        # TODO: Update this function and use it to calculate thresholds for interssections etc on the fly. 
         # Helper functions
         def norm2(p): 
             return math.hypot(p[0], p[1])
@@ -1132,238 +1281,97 @@ class Bezier(CurveObject):
 
         return dict(coord_tol=coord_tol, t_tol=t_tol, det_tol=det_tol, tangent_cross_tol=tangent_cross_tol)
 
-    def ints(self, other: "Bezier"):
-        """Calculates the intersction between self and other.
-        Follows: http://nishitalab.org/user/nis/cdrom/cad/CAGD90Curve.pdf
-        Sederberg, and Nishita, Curve Intersection by Bezier Clipping, 1990
+# WARNING: THE FOLLOWING SHOULD BE REMOVED.
+
+    def find_self_intersection(self, eps0: float = 1e-15):
+        # WARNING: TO BE REMOVED.
+        """Finds the self intersection of the curve (if any).
+        Returns three parameter values.
+        Ref: https://comp.graphics.algorithms.narkive.com/tqLNEZqM/cubic-bezier-self-intersections
         """
-        # TODO: Add all tolerances as parameters. 
-        # Tolerances found: 
-        # horisontal_hits, eps=1e-12 for determining if the denominator is close to zero.
-        # merge_spans, eps=1e-15, for determining if spans should be joined. Might not be necessary at all. 
-        # clip_against_fatline, eps=1e-12 to be passed to horisontal hits and to soften fatline slightly.
-        # Main function (ints) tau = 1e-10 to determine parameter exactness, also sent to add_results to remove
-        # duplicates differing by less than this. 
+        p0 = self.points[0]
+        p1 = self.points[1]
+        p2 = self.points[2]
+        p3 = self.points[3]
 
-        def fatline(c: "Bezier"):
-            """Calculates a fatline around the curve c.
-            Returns start and end points p0 and p3, and the widths of
-            the fatline dmin and dmax.
-            """
-            p0, p1, p2, p3 = c.points
-            chord = p3 - p0 # TODO: Check if p3 = p0 (approx) then return None?
-            normal = chord.perpendicular().normalize()
-            # Distance of controls p1 and p2 t to the chord.
-            d1 = (p1 - p0).dot(normal)
-            d2 = (p2 - p0).dot(normal)
-            if d1 * d2 > 0:
-                dmin = 0.75 * min(0, d1, d2)
-                dmax = 0.75 * max(0, d1, d2)
-            else: 
-                dmin = 4/9 * min(0, d1, d2)
-                dmax = 4/9 * max(0, d1, d2)
+        H1 = -3 * p0 + 3 * p1
+        H2 = 3 * p0 - 6 * p1 + 3 * p2
+        H3 = - p0 + 3 * p1 - 3 * p2 + p3 
+        if H3 == mathutils.Vector((0,0,0)):
+            return None
 
-            k1 = p0 + normal * dmin
-            k2 = p3 + normal * dmin
-            l1 = p0 + normal * dmax
-            l2 = p3 + normal * dmax
-            # add_line(k1.to_mu_vector(), k2.to_mu_vector())
-            # add_line(l1.to_mu_vector(), l2.to_mu_vector())
-            # TODO: p3 does not have to be returned.
-            return p0, p3, normal, dmin, dmax
+        A = H2.x / H3.x
+        B = H1.x / H3.x
+        P = H2.y / H3.y
+        Q = H1.y / H3.y
+        
+        if abs(A - P) < eps0 or abs(Q - B) < eps0:
+            return None
 
-        def signed_distances(c: "Bezier", q0: Vector, q3: Vector, normal: Vector):
-            """Calculates the signed distances of the controls of c 
-            to the lne q0-q3."""
-            # TODO: q3 not used.
-            p0, p1, p2, p3 = c.points
-            d0 = (p0 - q0).dot(normal)
-            d1 = (p1 - q0).dot(normal)
-            d2 = (p2 - q0).dot(normal)
-            d3 = (p3 - q0).dot(normal)
+        k = (Q - B) / (A - P)
 
-            # k0 = p0 - normal * d0
-            # k1 = p1 - normal * d1
-            # k2 = p2 - normal * d2
-            # k3 = p3 - normal * d3
-            # add_line(p0.to_mu_vector(), k0.to_mu_vector())
-            # add_line(p1.to_mu_vector(), k1.to_mu_vector())
-            # add_line(p2.to_mu_vector(), k2.to_mu_vector())
-            # add_line(p3.to_mu_vector(), k3.to_mu_vector())
-            return d0, d1, d2, d3
+        r0 = (- k**3 - A * k**2 - B * k ) / 2
+        r1 = (3 * k**2 + 2 * k * A + 2 * B) / 2
+        r2 = - 3 * k / 2;
+        sols = solvers.solve_cubic(1.0, r2, r1, r0)
+        
+        if sols: 
+            solutions: list[float] = []
+            for s in sols:
+                if isinstance(s, float) and (s >= 0.0 and s <= 1.0):
+                    solutions.append(s)
+                solutions.sort()
+            if len(solutions) == 3:
+                # The middle solution is a rouge solution.
+                # The first and last are the two parameter values where it meets itself. 
+                # Only need the first.
+                return [solutions[0], solutions[2]]
+        return None
 
-        def cross(o: Vector, a: Vector, b: Vector):
-            """Cross product of two dimensional vectors a - o and b - o. 
-            Returns only the z-component."""
-            v1 = a - o
-            v2 = b - o
-            return v1.cross(v2)[2]
-
-        def calculate_convex_hull(d0: float, d1: float, d2: float, d3: float):
-            """Calculate the upper and lower hulls of the constructed bezier curve."""
-            # Create the 'non-parametric' curve D(t) = (t, d(t)) where d(t) is the signed
-            # distance to the other curve. The time parameter is evenly spaced.
-            # The controls points are:
-            points = []
-            points.append(Vector(0,   d0, 0))
-            points.append(Vector(1/3, d1, 0))
-            points.append(Vector(2/3, d2, 0))
-            points.append(Vector(1,   d3, 0))
-
-            lower = []
-            for p in points:
-                # Check if the control polygon is convex and keep only the points that 
-                # are. The cross product check if we are turning to the right. 
-                while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
-                    lower.pop()
-                lower.append(p)
-
-            upper = []
-            for p in points:
-                # Check if the control polygon is convex and keep only the points that 
-                # are. The cross product check if we are turning to the right. 
-                while len(upper) >= 2 and cross(upper[-2], upper[-1], p) >= 0:
-                    upper.pop()
-                upper.append(p)
-            return lower, upper
-
-        def horizontal_hits(hull: list[tuple[float, float]], d: float, eps=1e-12):
-            """Find the intersection of the hull points (chain) and the 
-            horizontal line d."""
-            # Pair the points
-            hits = []
-            for (ta, da, _), (tb, db, _) in zip(hull, hull[1:]):
-                denom = db - da
-                if abs(denom) < eps:
-                    continue
-                s = (d - da) / denom
-                if 0 <= s <= 1:
-                    t_hit = ta + (tb - ta) * s
-                    hits.append(t_hit)
-            return hits
-
-        def eval_hull(hull: list[tuple[float, float]], s: float):
-            """Evaluate the hull (chain) at parameter value s."""
-            for (sa, da, _), (sb, db, _) in zip(hull, hull[1:]):
-                if sa <= s <= sb:
-                    t = (s - sa) / (sb - sa) # NOTE: sb != sa by construction of chain.
-                    return da + t * (db - da)
-            # if s is exaclty 1.0 or numerical tail? 
-            return hull[-1][1]
-
-        def merge_spans(spans: list[tuple[float, float]], eps: float = 1e-15):
-            """Merges the parameter intervals spans = [(t0, t1), (t2, t3), ...] 
-            so that overlapping spanns are combined."""
-            if not spans:
+    def curve_intersections(self, c2: 'Bezier', threshold = INTERSECTION_THRESHOLD):
+        """Recursive method used for finding the intersection between the two Bezier curves self and c2.
+        """
+        # WARNING: TO BE REMOVED.
+        threshold2 = threshold * threshold
+        bez0 = self
+        results: list[tuple[float, float]] = [] 
+        # if bez0.t1 - bez0.t0 < threshold and c2.t1 - c2.t0 < threshold:
+        if bez0.bounding_box()['area'] < threshold2 and c2.bounding_box()['area'] < threshold2:
+            # return [((bez0.t0 + bez0.t1)/2 , (c2.t0 + c2.t1)/2)]
+            if (bez0.t0 < TUPLE_FILTER_THRESHOLD or bez0.t1 > 1.0 - TUPLE_FILTER_THRESHOLD) and (c2.t0 < TUPLE_FILTER_THRESHOLD or c2.t1 > 1.0 - TUPLE_FILTER_THRESHOLD):
                 return []
-            spans.sort()
-            out = [list(spans[0])]
-            for a, b in spans[1:]:
-                if a <= out[-1][1] + eps: # overlaps or touches
-                    out[-1][1] = max(out[-1][1], b)
-                else:
-                    out.append([a,b])
-            return [(a,b) for a, b in out] # Convert back to list of tuples.
+            else: 
+                return [(bez0.t0, bez0.t1, c2.t0, c2.t1)]
 
-        def clip_against_fatline(c1: "Bezier", c2: "Bezier", eps=1e-12):
-            """Creates a fatline around c2 and clips c1 against it."""
-            
-            # TODO: What does eps do here?
+        cc1 = bez0.split(0.5)
+        cc2 = c2.split(0.5)
+        pairs = itertools.product(cc1, cc2)
 
-            # Calculate the fatline of c2.
-            q0, q3, normal, dmin, dmax = fatline(c2)
-
-            # Determine the non-parametric curve.
-            d0, d1, d2, d3 = signed_distances(c1, q0, q3, normal)
-            # Find upper and lower convex hull around the non-parametric curve.
-            lower, upper = calculate_convex_hull(d0, d1, d2, d3)
-
-            # List all candidates.
-            cand = {0.0, 1.0}
-            cand.update(s for s,_,_ in lower)
-            cand.update(s for s,_,_ in upper)
-
-            cand.update(horizontal_hits(lower, dmin, eps))
-            cand.update(horizontal_hits(lower, dmax, eps))
-            cand.update(horizontal_hits(upper, dmin, eps))
-            cand.update(horizontal_hits(upper, dmax, eps))
-
-            S = sorted(cand)
-            if len(S) < 2:
-                return None
-
-            feasible = []
-            for a, b in zip(S, S[1:]):
-                sm = 0.5 * (a + b)
-                dlo = eval_hull(lower, sm)
-                dup = eval_hull(upper, sm)
-                if (dlo <= dmax + eps) and (dup >= dmin - eps):
-                    feasible.append((a, b))
-
-            spans = merge_spans(feasible, eps=1e-15)
-            if not spans:
-                return None
-
-            sL = max(0.0, spans[0][0] - eps)
-            sR = min(1.0, spans[-1][1] + eps)
-            return (sL, sR)
-            # return spans
-
-        def add_result(results, t0a, t1a, t0b, t1b, tol=1e-10):
-            """Add result only if it is not already present."""
-            for (a,b, c, d) in results:
-                if abs(a - t0a) < tol and abs(b - t1a) < tol and abs(c - t0b) < tol and abs(d - t1b) < tol:
-                    return
-            results.append((t0a, t1a, t0b, t1b))
-
-        def one_clipping(c1: "Bezier", c2: "Bezier"):
-            """Clips c1 agains the fatline of c2."""
-            spans1 = clip_against_fatline(c1, c2)
-            if spans1:
-                t0, t1 = spans1
-                return c1.subsegment(t0, t1)
-            else:
-                return None
-
-        from collections import deque
-        que = deque()
-        que.append((self, other))
-
-        results = []
-        MAX_ITER = 12
-        tau = 1e-12 # TODO: Use the desired t-exactness. Perhaps even better than this?
-        while que:
-            new1, new2 = que.popleft()
-            i = 0
-            while i < MAX_ITER and ((new1.t1 - new1.t0) > tau or (new2.t1 - new2.t0) > tau):
-                old1 = new1
-                old2 = new2
-                i += 1
-                new1 = one_clipping(old1, old2) # TODO: Must handle non-intersections!
-                if not new1:
-                    break
-                new2 = one_clipping(old2, new1)
-                if not new2:
-                    break
-                db1 = new1.t1 - new1.t0
-                db2 = new2.t1 - new2.t0
-                if db1 > 0.7 * (old1.t1 - old1.t0) or db2 > 0.7 * (old2.t1 - old2.t0):
-                    if db1 > db2:
-                        b1a, b1b = new1.split2(0.5)
-                        que.append((b1a, new2))
-                        que.append((b1b, new2))
-                    else: # db2 > db1
-                        b2a, b2b = new2.split2(0.5)
-                        que.append((new1, b2a))
-                        que.append((new1, b2b))
-                    break
-            if new1 and new2 and (new1.t1 - new1.t0) < tau and (new2.t1 - new2.t0) < tau:
-                add_result(results, new1.t0, new1.t1, new2.t0, new2.t1, tau) 
-                # results.append((new1.t0, new1.t1, new2.t0, new2.t1))
-
-        results = [(0.5*(a+b), 0.5*(c+d)) for a, b, c, d in results]
-        results.sort()
+        pairs = list(filter(lambda x: x[0].overlaps(x[1]), pairs))
+        if len(pairs) == 0:
+            return results
+        
+        for pair in pairs:
+            results += pair[0].curve_intersections(pair[1], threshold)
+        results = filter_duplicates(results)
         return results
+
+TUPLE_FILTER_THRESHOLD = .2e-1 # Threshold for when two intersections are assumed to be the same. 
+
+def tuple_is_close(a: tuple[float, float], b: tuple[float, float], threshold = TUPLE_FILTER_THRESHOLD):
+    """Checks if two tuples a, and b, differ less then threshold. 
+    (a, b) is close to (a', b') if (a - a') < threshold and abs(b - b') < threshold."""
+    comparisons = all(math.isclose(*c, abs_tol = threshold) for c in zip(a,b))
+    return comparisons
+
+def filter_duplicates(tuples, threshold = TUPLE_FILTER_THRESHOLD):
+    """Filter out tuples that differ less than threshold."""
+    result = []
+    for tup in tuples:
+        if not any(tuple_is_close(tup, other, threshold) for other in result):
+            result.append(tup)
+    return result
+# WARNING: END REMOVED
 
 
 class Spline(CurveObject): 
@@ -1441,11 +1449,11 @@ class Spline(CurveObject):
         i = len(spline.bezier_points) - 1
         for j in range(0, i):
             handle_left = bezier_points[j].handle_left
-            p0 = bezier_points[j].co
-            p1 = bezier_points[j].handle_right
-            p2 = bezier_points[j + 1].handle_left
-            p3 = bezier_points[j + 1].co
-            handle_right = bezier_points[j + 1].handle_right
+            p0 = Vector.from_mu_vector(bezier_points[j].co)
+            p1 = Vector.from_mu_vector(bezier_points[j].handle_right)
+            p2 = Vector.from_mu_vector(bezier_points[j + 1].handle_left)
+            p3 = Vector.from_mu_vector(bezier_points[j + 1].co)
+            handle_right = Vector.from_mu_vector(bezier_points[j + 1].handle_right)
             beziers.append(Bezier(p0, p1, p2, p3, 
                                   location = loc, 
                                   scale = sca, 
@@ -1627,57 +1635,31 @@ class Spline(CurveObject):
         else:
             bezier_points[-1].handle_right = self.end_point(world_space = False)
 
-    def self_intersections(self, threshold = INTERSECTION_THRESHOLD):
-        """Find the intersections within the spline.
-        The results is a dict with two different key types. 
-        1. When one of the Bezier in the Spline contains a self intersection: 
-        key: int = i
-        value: float = t
-        In this case self.beziers[i] intersects itself at parameter t.
-        2. When two different curves intersect: 
-        key: (int, int) = (i, j)
-        value: [(ta1, tb1), (ta2, tb2), ...]
-        In this case self.bezier[i](ta1) = self.bezier[j](tb1) and similar for (ta2, tb2), etc.
+    def self_intersections(self):
+        """Find the intersctions within the spline.
+        Returns Dict[Tuple(int, int), Tuple(float, float)] 
+        where the keys (i, j) give the number of the intersecting curves and
+        the values (ti, tj) the parameter values at the intersection. 
+        The keys are stores so that i <= j. 
+        For bezier curves self intersection the key will be (i, i). 
         """
-        # TODO: Remove the middle solution of Bezier.find_self_intersections().
-        # TODO: When closed, this misses the intersections at the end Bezier (the one returning to the start point.
-        # Fix that!
-        intersections = {}
-        for i in range(len(self.beziers)):
-            ints = self.beziers[i].find_self_intersection() 
-            if ints: 
-                intersections[i] = ints
-        # Pair the curves.
-        pairs = itertools.combinations(enumerate(self.beziers), 2)
-        # Remove pairs which do not have overlapping bounding boxes. 
-        pairs = iter(pair for pair in pairs if pair[0][1].overlaps(pair[1][1]))
-        for pair in pairs:
-            results = pair[0][1].curve_intersections(pair[1][1], threshold)
-            if results:
-                intersections[pair[0][0], pair[1][0]] = results
-        return intersections
+        intersections: dict[tuple[int, int], list[tuple[float, float]]] = {}
 
-    def intersections(self, other: 'Spline', threshold = INTERSECTION_THRESHOLD):
-        """This should perhaps only intersect the two curves. 
-        We already have self intersections via the other function."""
-
-        """Self intersections: dict: 
-        - Key (i), value: (tia, tib): the i:th Bezier intersects itself at tia and tib. 
-        - Key (i, j), value: (tia, tib, tja, tjb): the i:th Bezier intersects the j:th Bezier at (tia approx tib)
-        and (tja approx tjb)
-
-        Intersectoins: dict:
-        - Key (i, j), value (tia, tib, tja, tjb): the i:th Bezier of self intersect the j:th Bezier of other.
-        """
-        intersections = {}
-        self_enumerate = enumerate(self.beziers)
-        other_enumerate = enumerate(other.beziers)
-        pairs = itertools.product(self_enumerate, other_enumerate)
-        pairs = iter(pair for pair in pairs if pair[0][1].overlaps(pair[1][1])) 
-        for pair in pairs: 
-            result = pair[0][1].curve_intersections(pair[1][1], threshold)
-            if result: 
-                intersections[pair[0][0], pair[1][0]] = result
+        # Self-intersections
+        for i, b in enumerate(self.beziers):
+            t = b.self_intersection()
+            if t:
+                intersections[(i,i)] = [t]
+        
+        # Bezier-bezier intersections
+        n = len(self.beziers)
+        for i in range(n):
+            bi = self.beziers[i]
+            for j in range(i + 1, n):
+                bj = self.beziers[j]
+                t = bi.intersections(bj)
+                if t:
+                    intersections[(i, j)] = t
         return intersections
 
     def start_point(self, world_space = False):
@@ -1691,7 +1673,7 @@ class Spline(CurveObject):
         # TODO: Not needed so far. Remove if not.
         first = self.beziers[0:i]
         second = self.beziers[i+1:]
-        splits = self.beziers[i].split2(t)
+        splits = self.beziers[i].split(t)
         first.append(splits[0])
         second.insert(0, splits[1])
         loc = self.location
@@ -1699,6 +1681,8 @@ class Spline(CurveObject):
         return [Spline(*first, location = loc, rotation = rot), Spline(*second, location = loc, rotation = rot)]
 
     def split_at_self_intersections(self):
+        # TODO: Update this?
+
         # 1. Calculate the self intersections.
         # 2. Split the curve into parts.
         # - If it is an internal self intersection at t: 
@@ -1741,7 +1725,7 @@ class Spline(CurveObject):
             print("Curve ", i)
             if i in compiled:
                 print("Splitting")
-                splits = bez.split2(*compiled[i])
+                splits = bez.split(*compiled[i])
                 print(len(splits), "pieces.")
                 for s in splits[0:-1]: 
                     if keep > 0:
@@ -1767,6 +1751,7 @@ class Spline(CurveObject):
     def join_spline(self, mode):
         """Join another spline to the end of self. 
         mode determines how the joins are made in case self does not have continuous derivative."""
+        pass
 
 
 class Curve(CurveObject):
@@ -2085,7 +2070,7 @@ class OffsetBezier():
             # approx['curve'].add_to_Blender()
             return [approx['curve']]
         else:
-            b = self.original_curve.split2(0.5)
+            b = self.original_curve.split(0.5)
             k1 = OffsetBezier(b[0], self.d, self.sign)
             k2 = OffsetBezier(b[1], self.d, self.sign)
             kk1 = k1.find_cubic_approximation()
