@@ -58,6 +58,8 @@
 # 5. Think about if this can be done in a reasonable manner so that this is also 
 #    useful for the standalone SVG-parser. 
 
+# TODO: Remake this so that it uses the curves module.
+
 # ALGORITHM AND STRUCTURE
 # The goal of this program is to: 
 # - Read and interpret (parse) an .svg-file. 
@@ -77,6 +79,7 @@
 # We also replace the use nodes by their corresponding geometry objects.  
 # In the second pass over we also create the Blender spines and insert them into Blender. 
 
+# TODO: Import only math and mathutils and use e.g. math.tan, etc.
 import bpy
 from math import tan, sin, cos, acos, sqrt, pi
 from mathutils import Matrix, Vector
