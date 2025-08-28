@@ -59,7 +59,7 @@ def solve_quadratic(c2: Union[float, complex], c1: Union[float, complex], c0: Un
 
     return [x0, x1]
 
-def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float, eps = 1e-12): 
+def solve_cubic(c3i: float, c2i: float, c1i: float, c0i: float, eps = 1e-12) -> list[float]:
     """Solves the cubic equation c3i * x**3 + c2i * x**2 + c1i * x + c0i = 0.
     See: https://momentsingraphics.de/CubicRoots.html.
     Returns only the real solutions."""
