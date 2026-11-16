@@ -35,6 +35,9 @@
 ##### CONSTANTS #####
 INTERSECTION_THRESHOLD = 1e-6 # Threshold for when to stop subdividing when finding intersections.
 OFFSET_TOLERANCE = 1e-4
+
+EPS_0 = 1e-12 # A float x is considered zero if abs(x) < EPS_0
+EPS_T = 1e-8
 ##### END: CONSTANTS #####
 
 import mathutils
@@ -799,21 +802,36 @@ class Bezier(CurveObject):
 
         return left, right
 
-    def split_o(self, *parameters: float):
+    def split_n(self, *ts: float, eps=EPS_T):
         """Split the curve at parameters. Returns a list of the split segments."""
-        # TODO: Rename this to split as soon as the other one is removed.
-        # TODO: Should this return a Curve instead?
-        ts = sorted([t for t in parameters])
-        if ts[0] != 0.0: 
-            ts.insert(0, 0.0)
-        if ts[-1] != 1.0: 
-            ts.append(1.0)
-        
-        sub_curves: list[Bezier] = []
-        for i in range(1, len(ts)): 
-            sub_curves.append(self.subsegment(ts[i-1], ts[i]))
+        cleaned = []
+        for t in ts:
+            if t is None:
+                continue
+            # Remove close to end point clippings. 
+            # Endpoints will be added later.
+            if abs(t) < eps or abs(t) > 1 - eps:
+                continue
+            cleaned.append(t)
+            
+        if not cleaned:
+            return [self]
 
-        return sub_curves
+        cleaned.sort()
+
+        uniq = []
+        prev = None
+        for t in cleaned:
+            if prev is None or abs(t - prev) > eps:
+                uniq.append(t)
+                prev = t
+
+        bounds = [0.0] + uniq + [1.0]
+        segs = []
+        for a, b in zip(bounds, bounds[1:]):
+            segs.append(self.subsegment(a, b))
+
+        return segs
 
     def _create_Blender_curve(self):
         """Creates a new curve object in Blender."""
@@ -887,6 +905,21 @@ class Bezier(CurveObject):
         q2: mathutils.Vector = m @ p[2] + translation # type: ignore
         q3: mathutils.Vector = m @ p[3] + translation # type: ignore
         self.points = [q0, q1, q2, q3] # type: ignore
+
+    def intersect_x_line(self, px, py, eps_t = 1e-12, eps_x = 1e-12):
+        """Intersects the line starting at (x, y0) for x >= x0."""
+        y0, y1, y2, y3 = list(p[1] for p in self.points)
+        c3 = y3 - 3 * y2 + 3 * y1 - y0
+        c2 = 3 * (y2 - 2 * y1 + y0)
+        c1 = 3 * (y1 - y0)
+        c0 = y0 - py
+        sols = solvers.solve_cubic(c3, c2, c1, c0)
+        results = []
+        for s in sols:
+            if isinstance(s, float) and -eps_t <= s <= 1.0 + eps_t and self(s)[0] >= px + eps_x:
+                t = 0.0 if s <= eps_t else (1.0 if s >= 1.0 - eps_t else s)
+                results.append(t)
+        return results
 
     def intersect_ray(self, sp: mathutils.Vector, d: mathutils.Vector):
         """Find intersection of the cubic with a ray from point sp in the direction d.
@@ -1015,221 +1048,7 @@ class Bezier(CurveObject):
         Follows: http://nishitalab.org/user/nis/cdrom/cad/CAGD90Curve.pdf
         Sederberg, and Nishita, Curve Intersection by Bezier Clipping, 1990
         """
-        # TODO: Add max_iters as parameter. 
-        # TODO: Add all tolerances as parameters. Which should be the same?
-
-        # NOTE: Tolerances are:
-        # horisontal_hits, eps=1e-12 for determining if the denominator is close to zero.
-        # merge_spans, eps=1e-15, for determining if spans should be joined. Might not be necessary at all. 
-        # clip_against_fatline, eps=1e-12 to be passed to horisontal hits and to soften fatline slightly.
-        # Main function (ints), tau=1e-10 to determine parameter exactness, also sent to add_results to remove duplicates differing by less than this. 
-
-        def fatline(c: "Bezier"):
-            """Calculates a fatline around the curve c.
-            Returns start and end points p0 and p3, and the widths of
-            the fatline dmin and dmax.
-            """
-            # FIX: Should we check for chord = 0?
-
-            p0, p1, p2, p3 = c.points
-            chord = p3 - p0 
-            normal = chord.perpendicular().normalize()
-            # Distance of controls p1 and p2 t to the chord.
-            d1 = (p1 - p0).dot(normal)
-            d2 = (p2 - p0).dot(normal)
-            if d1 * d2 > 0:
-                dmin = 0.75 * min(0, d1, d2)
-                dmax = 0.75 * max(0, d1, d2)
-            else: 
-                dmin = 4/9 * min(0, d1, d2)
-                dmax = 4/9 * max(0, d1, d2)
-
-            k1 = p0 + normal * dmin
-            k2 = p3 + normal * dmin
-            l1 = p0 + normal * dmax
-            l2 = p3 + normal * dmax
-            return p0, normal, dmin, dmax
-
-        def signed_distances(c: "Bezier", q0: Vector, normal: Vector):
-            """Calculates the signed distances of the controls of c 
-            to the lne q0-q3."""
-            p0, p1, p2, p3 = c.points
-            d0 = (p0 - q0).dot(normal)
-            d1 = (p1 - q0).dot(normal)
-            d2 = (p2 - q0).dot(normal)
-            d3 = (p3 - q0).dot(normal)
-            return d0, d1, d2, d3
-
-        def cross(o: Vector, a: Vector, b: Vector):
-            """Cross product of two dimensional vectors a - o and b - o. 
-            Returns only the z-component."""
-            v1 = a - o
-            v2 = b - o
-            return v1.cross(v2)[2]
-
-        def calculate_convex_hull(d0: float, d1: float, d2: float, d3: float):
-            """Calculate the upper and lower hulls of the constructed bezier curve."""
-            # Create the 'non-parametric' curve D(t) = (t, d(t)) where d(t) is the signed
-            # distance to the other curve. The time parameter is evenly spaced.
-            # The controls points are:
-            points = []
-            points.append(Vector(0,   d0, 0))
-            points.append(Vector(1/3, d1, 0))
-            points.append(Vector(2/3, d2, 0))
-            points.append(Vector(1,   d3, 0))
-
-            lower = []
-            for p in points:
-                # Check if the control polygon is convex and keep only the points that 
-                # are. The cross product check if we are turning to the right. 
-                while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
-                    lower.pop()
-                lower.append(p)
-
-            upper = []
-            for p in points:
-                # Check if the control polygon is convex and keep only the points that 
-                # are. The cross product check if we are turning to the right. 
-                while len(upper) >= 2 and cross(upper[-2], upper[-1], p) >= 0:
-                    upper.pop()
-                upper.append(p)
-            return lower, upper
-
-        def horizontal_hits(hull: list[Vector], d: float, eps=1e-12):
-            """Find the intersection of the hull points (chain) and the 
-            horizontal line d."""
-            # Pair the points
-            hits = []
-            for (ta, da, _), (tb, db, _) in zip(hull, hull[1:]):
-                denom = db - da
-                if abs(denom) < eps:
-                    continue
-                s = (d - da) / denom
-                if 0 <= s <= 1:
-                    t_hit = ta + (tb - ta) * s
-                    hits.append(t_hit)
-            return hits
-
-        def eval_hull(hull: list[Vector], s: float):
-            """Evaluate the hull (chain) at parameter value s."""
-            for (sa, da, _), (sb, db, _) in zip(hull, hull[1:]):
-                if sa <= s <= sb:
-                    t = (s - sa) / (sb - sa) # sb != sa by construction of chain.
-                    return da + t * (db - da)
-            # if s is exaclty 1.0 or numerical tail? 
-            return hull[-1][1]
-
-        def merge_spans(spans: list[tuple[float, float]], eps: float = 1e-15):
-            """Merges the parameter intervals spans = [(t0, t1), (t2, t3), ...] 
-            so that overlapping spanns are combined."""
-            if not spans:
-                return []
-            spans.sort()
-            out = [list(spans[0])]
-            for a, b in spans[1:]:
-                if a <= out[-1][1] + eps: # overlaps or touches
-                    out[-1][1] = max(out[-1][1], b)
-                else:
-                    out.append([a,b])
-            return [(a,b) for a, b in out] # Convert back to list of tuples.
-
-        def clip_against_fatline(c1: "Bezier", c2: "Bezier", eps=1e-12):
-            """Creates a fatline around c2 and clips c1 against it."""
-            
-            # TODO: What does eps do here?
-
-            q0, normal, dmin, dmax = fatline(c2)
-
-            # Determine the non-parametric curve.
-            d0, d1, d2, d3 = signed_distances(c1, q0, normal)
-
-            # Find upper and lower convex hull around the non-parametric curve.
-            lower, upper = calculate_convex_hull(d0, d1, d2, d3)
-
-            # List all parameter candidates.
-            cand = {0.0, 1.0}
-            cand.update(s for s,_,_ in lower)
-            cand.update(s for s,_,_ in upper)
-
-            cand.update(horizontal_hits(lower, dmin, eps))
-            cand.update(horizontal_hits(lower, dmax, eps))
-            cand.update(horizontal_hits(upper, dmin, eps))
-            cand.update(horizontal_hits(upper, dmax, eps))
-
-            S = sorted(cand)
-            if len(S) < 2:
-                return None
-
-            feasible = []
-            for a, b in zip(S, S[1:]):
-                sm = 0.5 * (a + b)
-                dlo = eval_hull(lower, sm)
-                dup = eval_hull(upper, sm)
-                if (dlo <= dmax + eps) and (dup >= dmin - eps):
-                    feasible.append((a, b))
-
-            spans = merge_spans(feasible, eps=1e-15)
-            if not spans:
-                return None
-
-            sL = max(0.0, spans[0][0] - eps)
-            sR = min(1.0, spans[-1][1] + eps)
-            return (sL, sR)
-
-        def add_result(results, t0a, t1a, t0b, t1b, eps_0=1e-12):
-            """Add result only if it is not already present."""
-            for (a,b, c, d) in results:
-                if abs(a - t0a) < eps_0 and abs(b - t1a) < eps_0 and abs(c - t0b) < eps_0 and abs(d - t1b) < eps_0:
-                    return
-            results.append((t0a, t1a, t0b, t1b))
-
-        def one_clipping(c1: "Bezier", c2: "Bezier"):
-            """Clips c1 agains the fatline of c2."""
-            spans1 = clip_against_fatline(c1, c2)
-            if spans1:
-                t0, t1 = spans1
-                return c1.subsegment(t0, t1)
-            else:
-                return None
-
-        from collections import deque
-        que = deque()
-        que.append((self, other))
-
-        results = []
-        MAX_ITER = 12
-        tau = 1e-12 # FIX: Use the desired t-exactness. Perhaps even better than this?
-        while que:
-            new1, new2 = que.popleft()
-            i = 0
-            while i < MAX_ITER and ((new1.t1 - new1.t0) > tau or (new2.t1 - new2.t0) > tau):
-                old1 = new1
-                old2 = new2
-                i += 1
-                new1 = one_clipping(old1, old2) # TODO: Must handle non-intersections!
-                if not new1:
-                    break
-                new2 = one_clipping(old2, new1)
-                if not new2:
-                    break
-                db1 = new1.t1 - new1.t0
-                db2 = new2.t1 - new2.t0
-                if db1 > 0.7 * (old1.t1 - old1.t0) or db2 > 0.7 * (old2.t1 - old2.t0):
-                    if db1 > db2:
-                        b1a, b1b = new1.split(0.5)
-                        que.append((b1a, new2))
-                        que.append((b1b, new2))
-                    else: # db2 > db1
-                        b2a, b2b = new2.split(0.5)
-                        que.append((new1, b2a))
-                        que.append((new1, b2b))
-                    break
-            if new1 and new2 and (new1.t1 - new1.t0) < tau and (new2.t1 - new2.t0) < tau:
-                add_result(results, new1.t0, new1.t1, new2.t0, new2.t1, tau) 
-
-        results = [(0.5*(a+b), 0.5*(c+d)) for a, b, c, d in results]
-        results.sort()
-        return results
+        return intersections(self, other)
 
     def tolerances_for_curve(self, *, k=32, 
                              coord_min=1e-8, coord_max=1e-3,
@@ -1345,7 +1164,6 @@ class Spline(CurveObject):
     def from_Blender(cls, name: str):
         """Alternative constructor where the Spline is imported from Blender."""
         cu= bpy.data.collections['Collection'].objects[name]
-        beziers = []
         loc = cu.location
         sca = cu.scale
         rot = cu.rotation_euler
@@ -1353,23 +1171,53 @@ class Spline(CurveObject):
         is_closed = spline.use_cyclic_u
 
         bezier_points = spline.bezier_points
-        # How can we do this better? 
-        i = len(spline.bezier_points) - 1
-        for j in range(0, i):
-            handle_left = bezier_points[j].handle_left
-            p0 = Vector.from_mu_vector(bezier_points[j].co)
-            p1 = Vector.from_mu_vector(bezier_points[j].handle_right)
-            p2 = Vector.from_mu_vector(bezier_points[j + 1].handle_left)
-            p3 = Vector.from_mu_vector(bezier_points[j + 1].co)
-            handle_right = Vector.from_mu_vector(bezier_points[j + 1].handle_right)
-            beziers.append(Bezier(p0, p1, p2, p3, 
-                                  location = loc, 
-                                  scale = sca, 
-                                  rotation = rot,
-                                  start_handle_left = handle_left,
-                                  end_handle_right = handle_right
-                                  ))
-            
+        vectors = [(Vector.from_mu_vector(b.handle_left),
+                    Vector.from_mu_vector(b.co),
+                    Vector.from_mu_vector(b.handle_right)) 
+            for b in bezier_points]
+
+        beziers = []
+        for (l0, p0, r0), (l1, p1, r1) in itertools.pairwise(vectors):
+            beziers.append(
+                Bezier(p0, r0, l1, p1,
+                       location = loc,
+                       scale = sca,
+                       start_handle_left = l0,
+                       end_handle_right = r1
+                       )
+            )
+        # Close off the spline if necessary.
+        if is_closed:
+            l0, p0, r0 = vectors[-1]
+            l1, p1, r1 = vectors[0]
+            beziers.append(
+                Bezier(p0, r0, l1, p1,
+                       location = loc,
+                       scale = sca,
+                       start_handle_left = l0,
+                       end_handle_right = r1
+                       )
+            )
+
+        # i = len(spline.bezier_points) - 1
+        # # TODO: This stores NEW instances of each vector for each points even if they coincide.
+        # for j in range(0, i):
+        #     q0 = bezier_points[j]
+        #     q1 = bezier_points[j + 1]
+        #     handle_left = Vector.from_mu_vector(q0.handle_left)
+        #     p0 = Vector.from_mu_vector(q0.co)
+        #     p1 = Vector.from_mu_vector(q0.handle_right)
+        #     p2 = Vector.from_mu_vector(q1.handle_left)
+        #     p3 = Vector.from_mu_vector(q1.co)
+        #     handle_right = Vector.from_mu_vector(q1.handle_right)
+        #     beziers.append(Bezier(p0, p1, p2, p3, 
+        #                           location = loc, 
+        #                           scale = sca, 
+        #                           rotation = rot,
+        #                           start_handle_left = handle_left,
+        #                           end_handle_right = handle_right
+        #                           ))
+
         return cls(*beziers, 
                    name = name, 
                    location = loc, 
@@ -1543,13 +1391,20 @@ class Spline(CurveObject):
         else:
             bezier_points[-1].handle_right = self.end_point(world_space = False)
 
-    def self_intersections(self):
+    def self_intersections(self) -> dict[tuple[int, int], list[tuple[float, float]]]:
         """Find the intersctions within the spline.
-        Returns Dict[Tuple(int, int), Tuple(float, float)] 
-        where the keys (i, j) give the number of the intersecting curves and
-        the values (ti, tj) the parameter values at the intersection. 
-        The keys are stores so that i <= j. 
-        For bezier curves self intersection the key will be (i, i). 
+
+        Returns
+        -------
+        intersections : dict[tuple[int, int], list[tuple[float, float]]]
+            Returns a dict of the form {(i, j): [(ti1, tj1), (ti2, tj2), ...]
+                                        (k, l): [(tk1, tl1), ...]
+                                        ...
+                                       }
+            where intersections[(i,j)] yields a list of the parameters where
+            curve self.bezier[i] intersects self.bezier[j].
+            The keys are stores so that i <= j. 
+            For bezier curves self intersection the key will be of the form (i, i). 
         """
         intersections: dict[tuple[int, int], list[tuple[float, float]]] = {}
 
@@ -1588,77 +1443,51 @@ class Spline(CurveObject):
         rot = self.rotation
         return [Spline(*first, location = loc, rotation = rot), Spline(*second, location = loc, rotation = rot)]
 
-    def split_at_self_intersections(self):
-        # TODO: Update this?
+    def split_at_self_intersections(self, eps=EPS_T):
+        """
 
-        # 1. Calculate the self intersections.
-        # 2. Split the curve into parts.
-        # - If it is an internal self intersection at t: 
-        #   we should split into two parts. 
-        # - If it is an bez-bez intersection: 
-        #   we should split into three parts. 
-        #
-        # The problem is what should be done when split the curve multiple times. 
-        # The correct split points are then hard. 
-        # Compile a dict(index, [t1, t2, t3...]) 
-        # where ti are the intersection points of self.bezier[index]
+        """
+        def _clean_t_values(ts: Iterable[float], eps: float = 1e-8) -> list[float]:
+            """
+
+            """
+            ts = sorted(ts)
+            out = []
+            prev = None
+            for t in ts:
+                if prev is None or abs(t - prev) > eps:
+                    out.append(t)
+                    prev = t
+            return out
+
         ints = self.self_intersections()
-        compiled = {}
-        for key in ints: 
-            if isinstance(key, tuple): 
-                if key[0] in compiled:
-                    compiled[key[0]].extend(list(i[0] for i in ints[key]))
-                else: 
-                    compiled[key[0]] = list(i[0] for i in ints[key])
-                if key[1] in compiled: 
-                    compiled[key[1]].extend(list(i[1] for i in ints[key]))
-                else: 
-                    compiled[key[1]] = list(i[1] for i in ints[key])
-            else: 
-                if key in compiled: 
-                    compiled[key].extend(ints[key])
-                else: 
-                    compiled[key] = ints[key]
         
-        bezs = self.beziers
-        curves: list[Bezier] = []
-        print(5*'\n', compiled)
+        # per_curve_t[i] will contain all splitting points of curve t.
+        per_curve_t = [[] for _ in range(len(self.beziers))]
+        for (i,j), t_pairs in ints.items():
+            if i == j: # Self intersection
+                if t_pairs:
+                    ta, tb = t_pairs[0]
+                    per_curve_t[i].append(ta)
+                    per_curve_t[i].append(tb)
+                continue
+            for ta, tb in t_pairs:
+                per_curve_t[i].append(ta)
+                per_curve_t[j].append(tb)
 
-        # Keep the curves until first intersection.
-        # Throw away all curves after the intersection.
-        # Repeat.
-        keep: int = 1
-        print("Splits", compiled)
-        for i, bez in enumerate(bezs):
-            print("Curve ", i)
-            if i in compiled:
-                print("Splitting")
-                splits = bez.split(*compiled[i])
-                print(len(splits), "pieces.")
-                for s in splits[0:-1]: 
-                    if keep > 0:
-                        print("Keeping", i)
-                        curves.append(s)
-                    else:
-                        print("Discarding split.")
-                    keep *= -1
-                if keep > 0:
-                    print("Keeping last curve in split.")
-                    curves.append(splits[-1])
-                else:
-                    print("Discarding last curve in split.")
+        splitted_beziers = []
+        for i, bez in enumerate(self.beziers):
+            ts = _clean_t_values(per_curve_t[i], eps = eps)
+            if not ts:
+                splitted_beziers.append(bez)
+                continue
+            seqs = bez.split_n(*ts) # The bezier split at points ts.
+            splitted_beziers.extend(seqs)
+        self.beziers = splitted_beziers
 
-            elif keep > 0:
-                print("Keeping unsplitted.")
-                curves.append(bez)
-            else:
-                print("Discarding unsplitted.")
-
-        return Spline(*curves, location = self.location, rotation = self.rotation)
-
-    def join_spline(self, mode):
-        """Join another spline to the end of self. 
-        mode determines how the joins are made in case self does not have continuous derivative."""
+    def collect_stroke(self):
+        """Removes interior points of the curve and creates an outline."""
+        # TODO: Do we need different types of rules, e.g. even/odd? 
         pass
 
 
@@ -2067,16 +1896,303 @@ class OffsetBezier():
         return {"area": 0.5 * area, "length": 0.5 * arclen, "x_moment": 0.5 * x_moment}
 
 
-class OffsetCurve():
-    """Takes a curve and offsets each bezier curve and patches the Bezier together."""
-    pass
+#### INTERSECTIONS BETWEEN BEZIER CURVES. ####
 
+def fatline(c: "Bezier") -> tuple[Vector, Vector, float, float]:
+    """Calculates a fatline around the curve c.
+    Returns start and end points p0 and p3, and the widths of
+    the fatline dmin and dmax.
+    """
+    p0, p1, p2, p3 = c.points
+    chord = p3 - p0 
+    normal = chord.perpendicular().normalize()
+    # Distance of controls p1 and p2 t to the chord.
+    d1 = (p1 - p0).dot(normal)
+    d2 = (p2 - p0).dot(normal)
+    if d1 * d2 > 0:
+        dmin = 0.75 * min(0, d1, d2)
+        dmax = 0.75 * max(0, d1, d2)
+    else: 
+        dmin = 4/9 * min(0, d1, d2)
+        dmax = 4/9 * max(0, d1, d2)
+    k1 = p0 + normal * dmin
+    k2 = p3 + normal * dmin
+    l1 = p0 + normal * dmax
+    l2 = p3 + normal * dmax
+    return p0, normal, dmin, dmax
 
-# TODO: Move the is_linear to the bezier curve instead.
+def signed_distances(c: "Bezier", q0: Vector, normal: Vector) -> tuple[float, float, float, float]:
+    """Calculates the signed distances of the controls of c 
+    to the lne q0-q3."""
+    p0, p1, p2, p3 = c.points
+    d0 = (p0 - q0).dot(normal)
+    d1 = (p1 - q0).dot(normal)
+    d2 = (p2 - q0).dot(normal)
+    d3 = (p3 - q0).dot(normal)
+    return d0, d1, d2, d3
 
-def ray_intersect(p0: mathutils.Vector, d0: mathutils.Vector, p1: mathutils.Vector, d1: mathutils.Vector): 
-    # TODO: Figure out what this does exactly. 
-    # Probably line-line inersection.
-    det = d0.x * d1.y - d0.y * d1.x
-    t = (d0.x * (p0.y - p1.y) - d0.y * (p0.x - p1.x)) / det
-    return mathutils.Vector((p1.x + d1.x * t, p1.y + d1.y * t))
+def cross(o: Vector, a: Vector, b: Vector):
+    """Cross product of two dimensional vectors a - o and b - o. 
+    Returns only the z-component."""
+    v1 = a - o
+    v2 = b - o
+    return v1.cross(v2)[2]
+
+def convex_hull(d0: float, d1: float, d2: float, d3: float, close=True):
+    """
+    Convex hull of points in (t, d)-space using Andrew's monotone chain.
+
+    Parameters
+    ----------
+    d0-d3: float
+        The signed distances to the fatline center. 
+    close : bool
+        If True (default), the hull is closed by repeating the first vertex at the end.
+
+    Returns
+    -------
+    hull : list of (t, d)
+        The convex hull in CCW order. Empty if no points.
+        If close=True, hull[0] == hull[-1].
+    """
+    pts = [Vector(0,   d0, 0),
+              Vector(1/3, d1, 0),
+              Vector(2/3, d2, 0),
+              Vector(1,   d3, 0)]
+
+    def cross(o, a, b):
+        # z-component of (a-o) x (b-o)
+        return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+
+    def build_half(seq):
+        half = []
+        for p in seq:
+            while len(half) >= 2:
+                z = cross(half[-2], half[-1], p)
+                if z > 0:
+                    half.pop()
+                else:
+                    break
+            half.append(p)
+        return half
+
+    lower = build_half(pts)          # left -> right
+    upper = build_half(reversed(pts))# right -> left
+    # print("ds:", d0, d1, d2, d3)
+    # print("lower:", lower)
+    # print("upper:", upper)
+    return lower, upper
+
+def calculate_convex_hull2(d0: float, d1: float, d2: float, d3: float):
+    """Calculate the upper and lower hulls of the constructed bezier curve."""
+    # Create the 'non-parametric' curve D(t) = (t, d(t)) where d(t) is the signed
+    # distance to the other curve. The time parameter is evenly spaced.
+    # The controls points are:
+    points = [Vector(0,   d0, 0),
+              Vector(1/3, d1, 0),
+              Vector(2/3, d2, 0),
+              Vector(1,   d3, 0)]
+    # Lower hull
+    lower = []
+    for p in points:
+        # Check if the control polygon is convex and keep only the points that are.
+        # The cross product is to check if we are turning to the right.
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    # Upper hull
+    upper = []
+    for p in points:
+        # For the upper hull we must turn to the right.
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) >= 0:
+            upper.pop()
+        upper.append(p)
+    return lower, upper
+
+def intersect_hull2(hull: list[Vector], d: float, EPS_0=EPS_0):
+    """Find the intersection of the hull and the horizontal line d."""
+    # Pair the points
+    for (ta, da, _), (tb, db, _) in zip(hull, hull[1:]):
+        denom = db - da
+        if abs(denom) < EPS_0: # Horizontal line.
+            continue
+        s = (d - da) / denom
+        if 0 <= s <= 1:
+            return ta + (tb - ta) * s
+    return None
+
+def intersect_hull(lower: list[Vector], upper: list[Vector], dmin: float, dmax: float):
+    """
+    Intersect the convex hull (lower + upper) with the horisontal lines y = dmin, y = dmax.
+
+    Parameters
+    ----------
+    lower : list[Vector]
+        List of the points of the lower hull. 
+        Subset of [Vector(0, d0, 0), Vector(1/3, d1, 0), Vector(2/3, d2, 0), Vector(1, d3, 0)].
+    upper : list[Vector]
+        Lists of the points of the upper hull. 
+        Subset of [Vector(1, d3, 0), Vector(2/3, d2, 0), Vector(1/3, d3, 0), Vector(0, d0, 0)].
+    dmin : float
+        The lower limit of the fatline.
+    dmax : float 
+        The upper limit of the fatline.
+
+    Returns
+    -------
+    tmin, tmax : float, float
+        The range (tmin, tmax) covers the range where the curve is within the fatline.
+    """
+    def intersect(p1: Vector, p2: Vector, d: float) -> float:
+        """
+        Helper function to find the intersection between the line p1 - p2 and y = d
+
+        Parameters
+        ----------
+        p1 : Vector
+        p2 : Vector
+            End points of the line 
+        d : float
+           Horisontal line. 
+
+        Returns
+        -------
+        float
+            The value of the parameter at the intersection.
+        """
+        dy = p2.y - p1.y # This is only called if p1.y != p2.y. 
+        s = (d - p1.y) / dy
+        return (p2.x - p1.x) * s + p1.x
+
+    tmin = 1.0
+    tmax = 0.0
+    points = lower[:-1] + upper # Higher starts from Vector(1, d3, 0)
+    
+    plower = (points[0].y < dmin)
+    phigher = (points[0].y > dmax)
+
+    if not (plower or phigher): # Inside fatline
+        tmin = min(tmin, points[0].x)
+        tmax = max(tmax, points[0].x)
+
+    for i in range(1, len(points)):
+        clower = (points[i].y < dmin)
+        chigher = (points[i].y > dmax)
+        if not (clower or chigher): # Inside fatline
+            tmin = min(tmin, points[i].x)
+            tmax = max(tmax, points[i].x)
+
+        if clower != plower: # Crossed the y = dmin line
+            t = intersect(points[i-1], points[i], dmin)
+            tmin = min(t, tmin)
+            tmax = max(t, tmax)
+            plower = clower
+
+        if chigher != phigher: # Crossed the y = dmax line
+            t = intersect(points[i-1], points[i], dmax)
+            tmin = min(t, tmin)
+            tmax = max(t, tmax)
+            phigher = chigher
+    return tmin, tmax 
+
+def reject_hull(lower: list[Vector], upper: list[Vector], dmin: float, dmax: float):
+    """Returns true of both hulls are outside the fatline."""
+    low = min(p[1] for p in lower)
+    upp = max(p[1] for p in upper)
+    return low > dmax or upp < dmin
+
+def add_result(results: list[tuple[float, float]], ta: float, tb: float, eps=EPS_T):
+    """Add result only if it is not already present."""
+    for (a, b) in results:
+        if abs(a - ta) < eps and abs(b - tb) < eps:
+            return
+    results.append((ta, tb))
+
+def filter_endpoints(pairs: list[tuple[float, float]], eps=EPS_T):
+    """Filter out cases where the ends of the curves meet."""
+    results = []
+    for (ta, tb) in pairs:
+        if (abs(ta) < eps and (tb - 1.0) < eps) or (abs(ta - 1.0) < eps and abs(tb) < eps): 
+            continue
+        else:
+            results.append((ta, tb))
+    results.sort()
+    return results
+
+def clip_against_fatline(c1: "Bezier", c2: "Bezier"):
+    """Creates a fatline around c2 and clips c1 against it.
+    Returns a Bezier which is a subcurve to c1."""
+    # Fatline of c2.
+    q0, normal, dmin, dmax = fatline(c2)
+
+    # Determine the non-parametric curve for c1.
+    d0, d1, d2, d3 = signed_distances(c1, q0, normal)
+
+    # Find upper and lower convex hull around the non-parametric curve.
+    lower, upper = convex_hull(d0, d1, d2, d3)
+
+    if reject_hull(lower, upper, dmin, dmax):
+    # Convex hull does not intersect with fatline.
+        return None
+
+    tmin, tmax = intersect_hull(lower, upper, dmin, dmax)
+    return c1.subsegment(tmin, tmax)
+
+def intersections(c1: Bezier, c2: Bezier, eps=EPS_T):
+    """Calculates the intersction between self and other.
+    Follows: http://nishitalab.org/user/nis/cdrom/cad/CAGD90Curve.pdf
+    Sederberg, and Nishita, Curve Intersection by Bezier Clipping, 1990
+    """
+    # TODO: Add max_iters as parameter. 
+    # TODO: Add all tolerances as parameters. Which should be the same?
+
+    # NOTE: Tolerances are:
+    # horisontal_hits, eps=1e-12 for determining if the denominator is close to zero.
+    # merge_spans, eps=1e-15, for determining if spans should be joined. Might not be necessary at all. 
+    # clip_against_fatline, eps=1e-12 to be passed to horisontal hits and to soften fatline slightly.
+    # Main function (ints), tau=1e-10 to determine parameter exactness, also sent to add_results to remove duplicates differing by less than this. 
+    from collections import deque
+    que = deque()
+    que.append((c1, c2))
+    results = []
+    MAX_ITER = 12
+    while que:
+        c1, c2 = que.popleft()
+        dt1 = c1.t1 - c1.t0
+        dt2 = c2.t1 - c2.t0
+        i = 0
+        while i < MAX_ITER and (dt1 > eps or dt2 > eps):
+            i += 1
+            dt1_old = dt1
+            dt2_old = dt2
+            c1 = clip_against_fatline(c1, c2)
+            if not c1:
+                break
+            c2 = clip_against_fatline(c2, c1)
+            if not c2:
+                break
+            dt1 = c1.t1 - c1.t0
+            dt2 = c2.t1 - c2.t0
+            if dt1 > 0.99 * dt1_old or dt2 > 0.99 * dt2_old:
+                # print("too little", dt1, dt1_old, dt2, dt2_old)
+                if dt1 > dt2:
+                    c1a, c1b = c1.split(0.5)
+                    que.append((c1a, c2))
+                    que.append((c1b, c2))
+                    break
+                else: # db2 >= db1
+                    c2a, c2b = c2.split(0.5)
+                    que.append((c1, c2a))
+                    que.append((c1, c2b))
+                    break
+            l1 = (c1.points[0] + c1.points[3]).length()
+            l2 = (c2.points[0] + c2.points[3]).length()
+        # print("Exit condition", i, dt1, dt2)
+
+        if c1 and c2 and dt1 < eps and dt2 < eps:
+            ta = (c1.t0 + c1.t1) / 2
+            tb = (c2.t0 + c2.t1) / 2
+            add_result(results, ta, tb, eps) 
+
+    results = filter_endpoints(results, 10 * eps)
+    return results
